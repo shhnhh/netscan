@@ -3,23 +3,59 @@
 #include <sys/param.h>
 #include <sys/socket.h>
 #include <sys/sysctl.h>
-#include <net/if.h>
 #include <net/if_dl.h>
-#include <net/route.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
-// RTF_LLINFO selects the routing-table entries that carry link-layer (ARP)
-// info. Newer SDKs have quietly dropped the constant even though the kernel
-// still honours the value, so fall back to its well-known bit if the header
-// no longer defines it.
+// The iOS SDK ships <net/if_dl.h> (sockaddr_dl) and the routing sysctl MIB,
+// but deliberately does NOT ship <net/route.h> — so the routing-message
+// struct and flags it would normally provide are declared here by hand. This
+// is the kernel's long-stable PF_ROUTE ABI; the layout mirrors XNU's
+// bsd/net/route.h exactly so the byte offsets line up with what the kernel
+// writes into the sysctl buffer. (This is the same "bring the header
+// yourself" workaround the open-source MMLanScan/MacFinder use, minus the
+// dependency on copying Apple's macOS SDK files into the repo.)
+#ifndef NET_RT_FLAGS
+#define NET_RT_FLAGS 2
+#endif
+
 #ifndef RTF_LLINFO
 #define RTF_LLINFO 0x400
 #endif
 
+struct netscan_rt_metrics {
+    u_int32_t rmx_locks;
+    u_int32_t rmx_mtu;
+    u_int32_t rmx_hopcount;
+    int32_t   rmx_expire;
+    u_int32_t rmx_recvpipe;
+    u_int32_t rmx_sendpipe;
+    u_int32_t rmx_ssthresh;
+    u_int32_t rmx_rtt;
+    u_int32_t rmx_rttvar;
+    u_int32_t rmx_pksent;
+    u_int32_t rmx_state;
+    u_int32_t rmx_filler[3];
+};
+
+struct netscan_rt_msghdr {
+    u_short   rtm_msglen;
+    u_char    rtm_version;
+    u_char    rtm_type;
+    u_short   rtm_index;
+    int       rtm_flags;
+    int       rtm_addrs;
+    pid_t     rtm_pid;
+    int       rtm_seq;
+    int       rtm_errno;
+    int       rtm_use;
+    u_int32_t rtm_inits;
+    struct netscan_rt_metrics rtm_rmx;
+};
+
 // Route messages pack their sockaddrs back-to-back, each padded up to a
-// 4-byte boundary. This is the same rounding Apple's own network_cmds/arp.c
-// uses to step from one sockaddr to the next.
+// 4-byte boundary. Same rounding Apple's own network_cmds/arp.c uses to step
+// from one sockaddr to the next.
 #define NETSCAN_SA_SIZE(sa)                                              \
     ((!(sa) || ((struct sockaddr *)(sa))->sa_len == 0)                   \
         ? sizeof(uint32_t)                                               \
@@ -55,7 +91,7 @@
     char *lim = buf + needed;
     char *next = buf;
     while (next < lim) {
-        struct rt_msghdr *rtm = (struct rt_msghdr *)next;
+        struct netscan_rt_msghdr *rtm = (struct netscan_rt_msghdr *)next;
         if (rtm->rtm_msglen == 0) {
             break; // defensive: avoid an infinite loop on a malformed record
         }
