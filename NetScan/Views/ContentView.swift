@@ -1,8 +1,8 @@
 import SwiftUI
 
 private enum ContentRoute: Hashable {
-    case map
     case speedTest
+    case security
 }
 
 struct ContentView: View {
@@ -35,20 +35,20 @@ struct ContentView: View {
             }
             .navigationDestination(for: ContentRoute.self) { route in
                 switch route {
-                case .map:
-                    NetworkMapView(devices: viewModel.devices)
                 case .speedTest:
                     SpeedTestView()
+                case .security:
+                    SecurityToolsView()
                 }
             }
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     HStack(spacing: 18) {
-                        NavigationLink(value: ContentRoute.map) {
-                            Image(systemName: "point.3.connected.trianglepath.dotted")
-                        }
                         NavigationLink(value: ContentRoute.speedTest) {
                             Image(systemName: "speedometer")
+                        }
+                        NavigationLink(value: ContentRoute.security) {
+                            Image(systemName: "lock.shield")
                         }
                     }
                 }

@@ -41,8 +41,11 @@ final class ScannerViewModel: ObservableObject {
         // The regular sweep only checks 5 ports, and routers often don't
         // answer any of them on 80/443 the way we probe — so it can end up
         // missing entirely. Give it its own wider, dedicated probe alongside
-        // the main sweep instead of just hoping it turns up.
-        if let gatewayIP = NetworkInfo.gatewayGuess(for: local), gatewayIP != local.ip {
+        // the main sweep instead of just hoping it turns up. There's no
+        // public API for the real default-route IP, so try both plausible
+        // gateway addresses (first-usable and last-usable in the subnet) —
+        // whichever actually answers gets flagged as the router.
+        for gatewayIP in NetworkInfo.gatewayGuesses(for: local) where gatewayIP != local.ip {
             Task {
                 await self.probeGateway(ip: gatewayIP)
             }

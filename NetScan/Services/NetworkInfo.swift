@@ -59,16 +59,23 @@ enum NetworkInfo {
         return (0..<count).map { uint32ToIPv4(firstHost + UInt32($0)) }
     }
 
-    /// Best-effort default-gateway guess: the subnet's first usable address,
-    /// which is the router on the overwhelming majority of home/office
-    /// networks. Not guaranteed — there's no public iOS API for the real
-    /// default route — but good enough to make sure the router shows up in
-    /// the device list explicitly rather than hoping it happens to answer
-    /// one of the swept ports.
-    static func gatewayGuess(for local: LocalAddress) -> String? {
-        guard let ipInt = ipv4ToUInt32(local.ip), let maskInt = ipv4ToUInt32(local.subnetMask) else { return nil }
+    /// Best-effort default-gateway guesses. There's no public iOS API for the
+    /// real default route, so this tries the two addresses routers actually
+    /// sit on in practice: the first usable address (overwhelming majority
+    /// of home/office networks) and the last usable address (some ISP
+    /// routers/ONTs, notably in Russia/CIS, ship configured at the top of
+    /// the range instead). Probing both beats guessing wrong and silently
+    /// deep-scanning some unrelated host while the real router shows no
+    /// open ports.
+    static func gatewayGuesses(for local: LocalAddress) -> [String] {
+        guard let ipInt = ipv4ToUInt32(local.ip), let maskInt = ipv4ToUInt32(local.subnetMask) else { return [] }
         let networkInt = ipInt & maskInt
-        return uint32ToIPv4(networkInt + 1)
+        let broadcastInt = networkInt | ~maskInt
+        guard broadcastInt > networkInt + 1 else { return [] }
+
+        let first = uint32ToIPv4(networkInt + 1)
+        let last = uint32ToIPv4(broadcastInt - 1)
+        return first == last ? [first] : [first, last]
     }
 
     private static func ipv4ToUInt32(_ ip: String) -> UInt32? {
