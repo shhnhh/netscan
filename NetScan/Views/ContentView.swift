@@ -38,7 +38,7 @@ struct ContentView: View {
                 case .speedTest:
                     SpeedTestView()
                 case .security:
-                    SecurityToolsView()
+                    WiFiAuditView()
                 }
             }
             .toolbar {
