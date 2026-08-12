@@ -46,29 +46,40 @@ enum ICMPPinger {
         var buffer = [UInt8](repeating: 0, count: 128)
         let received = recv(sock, &buffer, buffer.count, 0)
         guard received > 0 else { return false }
-        return isEchoReply(buffer: buffer, count: received, identifier: identifier)
+        return isEchoReply(buffer: buffer, count: received)
     }
 
-    /// BSD ICMP datagram sockets on Darwin prepend the IPv4 header to
-    /// received data (confirmed by Apple's own SimplePing sample, which
-    /// does this exact same skip) — unlike a raw "any bytes back = alive"
-    /// check, this matters because a dead host on a subnet wider than the
-    /// physical LAN can make the *router* answer with an ICMP "Destination
-    /// Unreachable" error instead of silence. That error is still "bytes
-    /// back", so without checking the actual ICMP type, every unreachable
-    /// address in the range got counted as a live device — this is what
-    /// made a scan report exactly `maxHosts` devices (the entire address
-    /// range) as "found".
-    private static func isEchoReply(buffer: [UInt8], count: Int, identifier: UInt16) -> Bool {
+    /// Decides whether a received packet is a genuine Echo Reply (a live
+    /// host answering our ping) versus something like a Destination
+    /// Unreachable — a router can send the latter for dead addresses on a
+    /// subnet wider than the physical segment, and counting those as "alive"
+    /// is what made a scan report the entire address range as found.
+    ///
+    /// Two things a previous version got wrong, both of which silently
+    /// rejected *every* real reply (so only hosts with an open TCP port
+    /// survived, collapsing the device count):
+    ///
+    /// 1. It assumed the IPv4 header is always prepended to the datagram.
+    ///    Whether the kernel includes it on a SOCK_DGRAM ICMP socket varies,
+    ///    so we detect it: a leading byte with version nibble 4 is an IPv4
+    ///    header to skip; otherwise the ICMP message starts at byte 0.
+    /// 2. It checked the ICMP identifier against the one we sent. On a
+    ///    SOCK_DGRAM ICMP socket the kernel overwrites the identifier with
+    ///    its own per-socket value, so our sent id never matches the reply.
+    ///    The kernel already only delivers replies for this socket's own
+    ///    sends, so that check bought nothing but false negatives — dropped.
+    private static func isEchoReply(buffer: [UInt8], count: Int) -> Bool {
         guard count >= 1 else { return false }
-        let ipHeaderLength = Int(buffer[0] & 0x0F) * 4
-        guard ipHeaderLength >= 20, count >= ipHeaderLength + 8 else { return false }
 
-        let icmpType = buffer[ipHeaderLength]
-        guard icmpType == 0 else { return false } // 0 = Echo Reply; anything else (e.g. 3 = Destination Unreachable) is not a live host answering
+        var icmpOffset = 0
+        if (buffer[0] >> 4) == 4 {
+            let ipHeaderLength = Int(buffer[0] & 0x0F) * 4
+            guard ipHeaderLength >= 20 else { return false }
+            icmpOffset = ipHeaderLength
+        }
 
-        let replyIdentifier = (UInt16(buffer[ipHeaderLength + 4]) << 8) | UInt16(buffer[ipHeaderLength + 5])
-        return replyIdentifier == identifier
+        guard count > icmpOffset else { return false }
+        return buffer[icmpOffset] == 0 // ICMP type 0 = Echo Reply
     }
 
     private static func makeEchoPacket(identifier: UInt16, sequence: UInt16) -> [UInt8] {

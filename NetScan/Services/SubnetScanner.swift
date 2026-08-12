@@ -8,7 +8,14 @@ import Network
 /// closed/filtered but that still answer ICMP (common for phones, tablets,
 /// IoT gear with no open services) would otherwise be missed entirely.
 actor SubnetScanner {
-    private let probePorts: [UInt16] = [80, 443, 22, 445, 62078]
+    // A wider net than the original 5 ports: plenty of devices answer no
+    // ICMP at all but keep some service listening (smart TVs, IoT, printers,
+    // NAS, media boxes), and each such port is another chance to notice a
+    // host the ping missed. Kept to common ones so the per-host worst case
+    // (every port timing out) stays bounded.
+    private let probePorts: [UInt16] = [
+        80, 443, 22, 445, 62078, 8080, 8443, 53, 139, 3389, 9100, 631, 5000, 7000,
+    ]
     private let connectTimeout: TimeInterval = 0.6
     private let maxConcurrentProbes = 32
 
