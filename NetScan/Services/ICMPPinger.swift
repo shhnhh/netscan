@@ -27,6 +27,7 @@ enum ICMPPinger {
         guard host.withCString({ inet_pton(AF_INET, $0, &addr.sin_addr) }) == 1 else {
             return false
         }
+        let targetAddr = addr.sin_addr.s_addr
 
         let identifier = UInt16.random(in: 0...UInt16.max)
         let packet = makeEchoPacket(identifier: identifier, sequence: 1)
@@ -40,13 +41,36 @@ enum ICMPPinger {
         }
         guard sent > 0 else { return false }
 
-        var pollFd = pollfd(fd: sock, events: Int16(POLLIN), revents: 0)
-        guard poll(&pollFd, 1, Int32(timeout * 1000)) > 0 else { return false }
+        // Read in a loop until the deadline. The socket is unconnected, so it
+        // receives *any* ICMP the process gets — a reply meant for another of
+        // the 32 concurrent pings, or a Destination Unreachable from a router
+        // — and we must ignore those, keep waiting, and only accept an Echo
+        // Reply that actually came *from the address we pinged*. Counting the
+        // stray packets as "alive" is what made a scan report the entire
+        // address range (exactly maxHosts) as found.
+        let deadline = Date().addingTimeInterval(timeout)
+        while true {
+            let remaining = deadline.timeIntervalSinceNow
+            guard remaining > 0 else { return false }
 
-        var buffer = [UInt8](repeating: 0, count: 128)
-        let received = recv(sock, &buffer, buffer.count, 0)
-        guard received > 0 else { return false }
-        return isEchoReply(buffer: buffer, count: received)
+            var pollFd = pollfd(fd: sock, events: Int16(POLLIN), revents: 0)
+            guard poll(&pollFd, 1, Int32(remaining * 1000)) > 0 else { return false }
+
+            var buffer = [UInt8](repeating: 0, count: 128)
+            var from = sockaddr_in()
+            var fromLen = socklen_t(MemoryLayout<sockaddr_in>.size)
+            let received = withUnsafeMutablePointer(to: &from) { fromPtr -> Int in
+                fromPtr.withMemoryRebound(to: sockaddr.self, capacity: 1) { fromSockaddr in
+                    recvfrom(sock, &buffer, buffer.count, 0, fromSockaddr, &fromLen)
+                }
+            }
+            guard received > 0 else { return false }
+
+            if from.sin_addr.s_addr == targetAddr, isEchoReply(buffer: buffer, count: received) {
+                return true
+            }
+            // Stray/other-host packet — keep waiting within the remaining time.
+        }
     }
 
     /// Decides whether a received packet is a genuine Echo Reply (a live
