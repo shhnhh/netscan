@@ -21,6 +21,10 @@ struct DeviceDetailView: View {
                     Label("Роутер (шлюз сети)", systemImage: "wifi.router.fill")
                         .foregroundStyle(.blue)
                 }
+                if device.isNewDevice {
+                    Label("Новое устройство в сети", systemImage: "sparkles")
+                        .foregroundStyle(.green)
+                }
                 if let hostname = device.hostname {
                     LabeledContent("Имя хоста", value: hostname)
                 }
