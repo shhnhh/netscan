@@ -17,6 +17,8 @@ targets:
       properties:
         UILaunchScreen: {}
         NSLocalNetworkUsageDescription: "NetScan сканирует локальную сеть, чтобы найти устройства и открытые сервисы."
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
         NSBonjourServices:
           - _http._tcp
           - _https._tcp

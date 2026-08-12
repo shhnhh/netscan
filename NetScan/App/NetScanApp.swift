@@ -4,7 +4,7 @@ import SwiftUI
 struct NetScanApp: App {
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            RootTabView()
         }
     }
 }
