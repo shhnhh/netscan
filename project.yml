@@ -17,6 +17,7 @@ targets:
       properties:
         UILaunchScreen: {}
         NSLocalNetworkUsageDescription: "NetScan сканирует локальную сеть, чтобы найти устройства и открытые сервисы."
+        NSLocationWhenInUseUsageDescription: "iOS отдаёт название и защищённость текущей Wi-Fi сети только приложениям с доступом к геолокации — сама геопозиция для аудита сети не используется и никуда не отправляется."
         NSBonjourServices:
           - _http._tcp
           - _https._tcp

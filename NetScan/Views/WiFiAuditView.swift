@@ -8,6 +8,7 @@ struct WiFiAuditView: View {
 
     private enum FailureReason {
         case noWiFi
+        case locationPermissionDenied
         case permissionDenied
     }
 
@@ -55,10 +56,16 @@ struct WiFiAuditView: View {
                     case .noWiFi:
                         Text("Не подключён к Wi-Fi.")
                             .foregroundStyle(.secondary)
+                    case .locationPermissionDenied:
+                        Label("Нужен доступ к геолокации", systemImage: "location.slash.fill")
+                            .foregroundStyle(.orange)
+                        Text("iOS отдаёт данные о Wi-Fi-сети приложению только если у него есть разрешение на геолокацию \"При использовании\" — так Apple ограничивает доступ к SSID/BSSID. Разреши доступ в Настройки → Конфиденциальность → Геолокация → NetScan и попробуй ещё раз. Сама геопозиция приложению не нужна и никуда не отправляется — это чисто техническое требование API.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     case .permissionDenied:
                         Label("iOS не отдаёт данные о сети этому приложению", systemImage: "exclamationmark.triangle.fill")
                             .foregroundStyle(.orange)
-                        Text("Wi-Fi подключён, но система не даёт приложению данные о сети — скорее всего разрешение \"Access WiFi Information\" не подхватилось при переподписи через iLoader. Это известное ограничение сборки без Mac и платного аккаунта разработчика.")
+                        Text("Разрешение на геолокацию есть, Wi-Fi подключён, но данные о сети всё равно недоступны — скорее всего entitlement \"Access WiFi Information\" не подхватился при переподписи через iLoader. Это известное ограничение сборки без Mac и платного аккаунта разработчика.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -76,19 +83,27 @@ struct WiFiAuditView: View {
 
     private func load() async {
         isLoading = true
-        let current = await WiFiSecurityInfo.fetchCurrent()
-        network = current
-        if let current {
+        network = nil
+
+        // NetworkInfo.currentWiFiAddress() reads the en0 interface IP
+        // directly via getifaddrs — needs no special entitlement/permission
+        // and is known to work — so it's ground truth for "genuinely not on
+        // Wi-Fi" vs. "iOS is withholding the data from this app".
+        guard NetworkInfo.currentWiFiAddress() != nil else {
+            failureReason = .noWiFi
+            isLoading = false
+            return
+        }
+
+        switch await WiFiSecurityInfo.fetchCurrent() {
+        case .success(let current):
+            network = current
             failureReason = nil
             isEvilTwinSuspected = WiFiHistoryStore.checkAndRecord(ssid: current.ssid, bssid: current.bssid)
-        } else {
-            // NEHotspotNetwork returned nothing — could genuinely mean "not on
-            // Wi-Fi", or could mean iOS is withholding the data from this app
-            // (missing entitlement). NetworkInfo.currentWiFiAddress() reads the
-            // en0 interface IP directly via getifaddrs, which needs no special
-            // entitlement and is known to work — use it as ground truth to
-            // tell the two cases apart instead of always blaming "not connected".
-            failureReason = NetworkInfo.currentWiFiAddress() == nil ? .noWiFi : .permissionDenied
+        case .locationPermissionDenied:
+            failureReason = .locationPermissionDenied
+        case .unavailable:
+            failureReason = .permissionDenied
         }
         isLoading = false
     }
