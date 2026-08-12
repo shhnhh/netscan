@@ -55,7 +55,7 @@ final class ScannerViewModel: ObservableObject {
         }
 
         Task {
-            await subnetScanner.scan(
+            let localNetworkAccessLikelyBlocked = await subnetScanner.scan(
                 hosts: hosts,
                 onDeviceFound: { [weak self] device in
                     Task { @MainActor in
@@ -71,7 +71,14 @@ final class ScannerViewModel: ObservableObject {
             )
             await MainActor.run {
                 self.isScanning = false
-                if self.devices.count <= 1 {
+                if localNetworkAccessLikelyBlocked {
+                    // ENETDOWN on TCP probes — the documented signature of
+                    // "Local Network" permission being denied or stuck (can
+                    // persist even after re-enabling it in Settings until
+                    // the device is restarted). An empty/thin result here
+                    // means "can't see the network", not "nothing's there".
+                    self.statusMessage = "Похоже, у приложения нет доступа к локальной сети. Проверь Настройки → Конфиденциальность и безопасность → Локальная сеть → NetScan. Если там уже включено, но не помогает — перезагрузи телефон."
+                } else if self.devices.count <= 1 {
                     self.statusMessage = "Кроме этого устройства ничего не найдено"
                 }
             }

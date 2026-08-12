@@ -12,11 +12,20 @@ actor SubnetScanner {
     private let connectTimeout: TimeInterval = 0.6
     private let maxConcurrentProbes = 32
 
+    /// Set if any TCP probe fails with ENETDOWN — the documented signature
+    /// of the Local Network permission being denied/stuck (Apple dev forum
+    /// reports this state can persist even after re-enabling the permission
+    /// in Settings, until the device is restarted). When this is set, an
+    /// empty result means "probably can't see the network at all", not
+    /// "genuinely no devices" — worth telling the user, not just going quiet.
+    private(set) var localNetworkAccessLikelyBlocked = false
+
+    @discardableResult
     func scan(
         hosts: [String],
         onDeviceFound: @escaping @Sendable (Device) -> Void,
         onProgress: @escaping @Sendable (_ completed: Int, _ total: Int) -> Void
-    ) async {
+    ) async -> Bool {
         let total = hosts.count
         var completed = 0
 
@@ -40,6 +49,8 @@ actor SubnetScanner {
                 launchNext()
             }
         }
+
+        return localNetworkAccessLikelyBlocked
     }
 
     private func probe(host: String) async -> Device? {
@@ -51,15 +62,22 @@ actor SubnetScanner {
         // wider host list (see NetworkInfo's CIDR fix), scanning them
         // sequentially per host would multiply the worst case (every port
         // timing out) into several seconds per dead host.
-        let openPorts: [Int] = await withTaskGroup(of: (UInt16, Bool).self) { group in
+        let openPorts: [Int] = await withTaskGroup(of: (UInt16, ProbeOutcome).self) { group in
             for port in probePorts {
                 group.addTask {
                     (port, await self.connectAttempt(host: host, port: port))
                 }
             }
             var result: [Int] = []
-            for await (port, open) in group where open {
-                result.append(Int(port))
+            for await (port, outcome) in group {
+                switch outcome {
+                case .open:
+                    result.append(Int(port))
+                case .networkDown:
+                    localNetworkAccessLikelyBlocked = true
+                case .closed:
+                    break
+                }
             }
             return result.sorted()
         }
@@ -72,7 +90,13 @@ actor SubnetScanner {
                       responseTimeMs: elapsedMs, openPorts: openPorts)
     }
 
-    private func connectAttempt(host: String, port: UInt16) async -> Bool {
+    private enum ProbeOutcome {
+        case open
+        case closed
+        case networkDown
+    }
+
+    private func connectAttempt(host: String, port: UInt16) async -> ProbeOutcome {
         await withCheckedContinuation { continuation in
             let params = NWParameters.tcp
             params.allowLocalEndpointReuse = true
@@ -83,7 +107,7 @@ actor SubnetScanner {
             )
 
             var resumed = false
-            let resumeOnce: (Bool) -> Void = { result in
+            let resumeOnce: (ProbeOutcome) -> Void = { result in
                 guard !resumed else { return }
                 resumed = true
                 connection.cancel()
@@ -93,16 +117,19 @@ actor SubnetScanner {
             connection.stateUpdateHandler = { state in
                 switch state {
                 case .ready:
-                    resumeOnce(true)
+                    resumeOnce(.open)
                 case .failed(let error):
+                    switch error {
                     // Connection refused still proves a host is present and responding.
-                    if case .posix(let code) = error, code == .ECONNREFUSED {
-                        resumeOnce(true)
-                    } else {
-                        resumeOnce(false)
+                    case .posix(.ECONNREFUSED):
+                        resumeOnce(.open)
+                    case .posix(.ENETDOWN):
+                        resumeOnce(.networkDown)
+                    default:
+                        resumeOnce(.closed)
                     }
                 case .cancelled:
-                    resumeOnce(false)
+                    resumeOnce(.closed)
                 default:
                     break
                 }
@@ -111,7 +138,7 @@ actor SubnetScanner {
             connection.start(queue: .global(qos: .utility))
 
             DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.6) {
-                resumeOnce(false)
+                resumeOnce(.closed)
             }
         }
     }
