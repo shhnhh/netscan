@@ -5,6 +5,8 @@ import SwiftUI
 final class ScannerViewModel: ObservableObject {
     @Published private(set) var devices: [Device] = []
     @Published private(set) var isScanning = false
+    @Published private(set) var scannedCount = 0
+    @Published private(set) var totalHosts = 0
     @Published var statusMessage: String?
 
     private let subnetScanner = SubnetScanner()
@@ -21,6 +23,11 @@ final class ScannerViewModel: ObservableObject {
         isScanning = true
         statusMessage = nil
         devices.removeAll()
+        scannedCount = 0
+
+        // Always show this device — it doesn't need probing, we already
+        // know it's alive, it's the one running the scan.
+        upsert(Device(id: local.ip, ipAddress: local.ip, hostname: "Это устройство", isReachable: true))
 
         bonjourScanner.start { [weak self] name, _ in
             Task { @MainActor in
@@ -28,17 +35,28 @@ final class ScannerViewModel: ObservableObject {
             }
         }
 
-        let hosts = NetworkInfo.hostAddresses(in: local)
+        let hosts = NetworkInfo.hostAddresses(in: local).filter { $0 != local.ip }
+        totalHosts = hosts.count
+
         Task {
-            await subnetScanner.scan(hosts: hosts) { [weak self] device in
-                Task { @MainActor in
-                    self?.upsert(device)
+            await subnetScanner.scan(
+                hosts: hosts,
+                onDeviceFound: { [weak self] device in
+                    Task { @MainActor in
+                        self?.upsert(device)
+                    }
+                },
+                onProgress: { [weak self] completed, total in
+                    Task { @MainActor in
+                        self?.scannedCount = completed
+                        self?.totalHosts = total
+                    }
                 }
-            }
+            )
             await MainActor.run {
                 self.isScanning = false
-                if self.devices.isEmpty {
-                    self.statusMessage = "Устройств не найдено"
+                if self.devices.count <= 1 {
+                    self.statusMessage = "Кроме этого устройства ничего не найдено"
                 }
             }
         }

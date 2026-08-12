@@ -4,14 +4,35 @@ import SwiftUI
 /// as a spoke around it) — this is what a home Wi-Fi network's shape
 /// actually is, not a guess at where things physically sit in a room. Same
 /// idea as Fing's "Network Map", which is topology, not geography.
+///
+/// Device taps push through the *parent* NavigationStack's
+/// `navigationDestination(for: Device.self)` — this view deliberately does
+/// not register its own, since two handlers for the same type on one stack
+/// is what caused taps here to resolve to the wrong destination before.
 struct NetworkMapView: View {
     let devices: [Device]
 
-    private let ringRadius: CGFloat = 120
+    @State private var scale: CGFloat = 1
+    @State private var lastScale: CGFloat = 1
+    @State private var offset: CGSize = .zero
+    @State private var lastOffset: CGSize = .zero
+    @State private var didFit = false
+
+    private var ringRadius: CGFloat {
+        max(140, CGFloat(devices.count) * 11)
+    }
+
+    private var canvasSize: CGFloat {
+        ringRadius * 2 + 140
+    }
+
+    private var showLabels: Bool {
+        scale > 0.9
+    }
 
     var body: some View {
         GeometryReader { geo in
-            let center = CGPoint(x: geo.size.width / 2, y: geo.size.height / 2)
+            let center = CGPoint(x: canvasSize / 2, y: canvasSize / 2)
 
             ZStack {
                 ForEach(Array(devices.enumerated()), id: \.element.id) { index, device in
@@ -26,7 +47,7 @@ struct NetworkMapView: View {
                 ForEach(Array(devices.enumerated()), id: \.element.id) { index, device in
                     let point = position(for: index, total: devices.count, center: center)
                     NavigationLink(value: device) {
-                        DeviceMapNode(device: device)
+                        DeviceMapNode(device: device, showLabel: showLabels)
                     }
                     .buttonStyle(.plain)
                     .position(point)
@@ -35,10 +56,47 @@ struct NetworkMapView: View {
                 RouterMapNode()
                     .position(center)
             }
+            .frame(width: canvasSize, height: canvasSize)
+            .scaleEffect(scale)
+            .offset(offset)
+            .position(x: geo.size.width / 2, y: geo.size.height / 2)
+            .gesture(
+                SimultaneousGesture(
+                    MagnificationGesture()
+                        .onChanged { value in
+                            scale = min(max(lastScale * value, 0.15), 4)
+                        }
+                        .onEnded { _ in lastScale = scale },
+                    DragGesture()
+                        .onChanged { value in
+                            offset = CGSize(
+                                width: lastOffset.width + value.translation.width,
+                                height: lastOffset.height + value.translation.height
+                            )
+                        }
+                        .onEnded { _ in lastOffset = offset }
+                )
+            )
+            .clipped()
+            .onAppear {
+                guard !didFit else { return }
+                didFit = true
+                let fit = min(1, min(geo.size.width, geo.size.height) / canvasSize)
+                scale = fit
+                lastScale = fit
+            }
         }
-        .navigationTitle("Карта сети")
-        .navigationDestination(for: Device.self) { device in
-            DeviceDetailView(device: device)
+        .navigationTitle("Карта сети (\(devices.count))")
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button("Сброс") {
+                    withAnimation {
+                        scale = lastScale <= 0 ? 1 : lastScale
+                        offset = .zero
+                        lastOffset = .zero
+                    }
+                }
+            }
         }
         .overlay(alignment: .bottom) {
             if devices.isEmpty {
@@ -88,6 +146,7 @@ private struct RouterMapNode: View {
 
 private struct DeviceMapNode: View {
     let device: Device
+    let showLabel: Bool
 
     private var symbolName: String {
         if device.isCamera { return "video.fill" }
@@ -112,10 +171,12 @@ private struct DeviceMapNode: View {
                 Image(systemName: symbolName)
                     .foregroundStyle(tint)
             }
-            Text(device.displayName)
-                .font(.caption2)
-                .lineLimit(1)
-                .frame(maxWidth: 70)
+            if showLabel {
+                Text(device.displayName)
+                    .font(.caption2)
+                    .lineLimit(1)
+                    .frame(maxWidth: 70)
+            }
         }
     }
 }
@@ -127,5 +188,8 @@ private struct DeviceMapNode: View {
             Device(id: "192.168.1.20", ipAddress: "192.168.1.20", openPorts: [554]),
             Device(id: "192.168.1.30", ipAddress: "192.168.1.30", openPorts: [9100]),
         ])
+        .navigationDestination(for: Device.self) { device in
+            DeviceDetailView(device: device)
+        }
     }
 }
