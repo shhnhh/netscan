@@ -10,6 +10,8 @@ enum DevicePlatform {
     case android
     case printer
     case mediaDevice
+    case iot
+    case gameConsole
     case unknown
 
     var label: String {
@@ -19,6 +21,8 @@ enum DevicePlatform {
         case .android: return "Android"
         case .printer: return "Принтер"
         case .mediaDevice: return "ТВ/проектор"
+        case .iot: return "IoT/умный дом"
+        case .gameConsole: return "Игровая консоль"
         case .unknown: return "Неизвестно"
         }
     }
@@ -33,6 +37,8 @@ enum DevicePlatform {
         case .android: return "smartphone"
         case .printer: return "printer.fill"
         case .mediaDevice: return "tv.fill"
+        case .iot: return "sensor.fill"
+        case .gameConsole: return "gamecontroller.fill"
         case .unknown: return "questionmark.circle"
         }
     }
@@ -42,6 +48,20 @@ enum PlatformGuesser {
     static func guess(for device: Device) -> DevicePlatform {
         let name = (device.bonjourName ?? device.hostname ?? "").lowercased()
         let ports = Set(device.openPorts)
+        let vendor = device.macVendor
+
+        // The MAC vendor, when we have it, is a stronger signal than port
+        // guessing for a few unambiguous makers — check those first.
+        switch vendor {
+        case "Espressif", "Raspberry Pi", "Tuya":
+            return .iot
+        case "Nintendo":
+            return .gameConsole
+        case "Apple":
+            return .apple
+        default:
+            break
+        }
 
         // Printer ports are distinctive enough to check first — IPP (631)
         // and raw/JetDirect (9100) aren't used for much else on a LAN.

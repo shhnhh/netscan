@@ -66,6 +66,10 @@ enum MacVendorLookup {
         // Raspberry Pi
         "28:CD:C1": "Raspberry Pi", "B8:27:EB": "Raspberry Pi",
         "DC:A6:32": "Raspberry Pi", "E4:5F:01": "Raspberry Pi",
+        // Tuya (smart plugs / bulbs / generic smart-home)
+        "10:D5:61": "Tuya", "18:69:D8": "Tuya", "24:4C:AB": "Tuya",
+        "50:02:91": "Tuya", "68:57:2D": "Tuya", "84:E3:42": "Tuya",
+        "D8:1F:12": "Tuya", "FC:67:1F": "Tuya",
         // Microsoft (Xbox / Surface)
         "00:15:5D": "Microsoft", "0C:41:3E": "Microsoft", "28:18:78": "Microsoft",
         "3C:83:75": "Microsoft", "48:50:73": "Microsoft", "50:1A:C5": "Microsoft",
