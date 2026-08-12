@@ -21,6 +21,13 @@ struct ContentView: View {
                 DeviceDetailView(device: device)
             }
             .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    NavigationLink {
+                        NetworkMapView(devices: viewModel.devices)
+                    } label: {
+                        Image(systemName: "point.3.connected.trianglepath.dotted")
+                    }
+                }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     if viewModel.isScanning {
                         ProgressView()
