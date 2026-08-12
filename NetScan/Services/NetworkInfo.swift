@@ -37,26 +37,47 @@ enum NetworkInfo {
         return result
     }
 
-    /// Expands a /24 (or narrower) subnet into a list of host IPv4 addresses to probe.
-    /// Deliberately caps the range to avoid scanning huge subnets on accident.
-    static func hostAddresses(in local: LocalAddress, maxHosts: Int = 254) -> [String] {
-        let ipParts = local.ip.split(separator: ".").compactMap { UInt8($0) }
-        let maskParts = local.subnetMask.split(separator: ".").compactMap { UInt8($0) }
-        guard ipParts.count == 4, maskParts.count == 4 else { return [] }
+    /// Expands the *actual* subnet (by real prefix length, not an assumed
+    /// /24) into host IPv4 addresses to probe, capped at `maxHosts`. The
+    /// previous version only ever varied the last octet within the current
+    /// /24 chunk — correct for home networks, but on anything wider (a /22
+    /// office/campus network, for instance) it silently missed every host
+    /// outside the very first 254 addresses. This does real CIDR math
+    /// instead of assuming the mask shape.
+    static func hostAddresses(in local: LocalAddress, maxHosts: Int = 512) -> [String] {
+        guard let ipInt = ipv4ToUInt32(local.ip), let maskInt = ipv4ToUInt32(local.subnetMask) else { return [] }
 
-        let network = zip(ipParts, maskParts).map { $0 & $1 }
-        let hostBits = maskParts.map { (~$0) }
+        let networkInt = ipInt & maskInt
+        let broadcastInt = networkInt | ~maskInt
+        guard broadcastInt > networkInt + 1 else { return [] }
 
-        // Only handle the common case (/24 or smaller range) to keep scans fast.
-        let lastOctetRange: [UInt8]
-        if hostBits[0] == 0, hostBits[1] == 0, hostBits[2] == 0 {
-            let hostMax = Int(hostBits[3])
-            lastOctetRange = (1..<max(hostMax, 1)).map { UInt8($0) }
-        } else {
-            lastOctetRange = Array(1...254)
-        }
+        let firstHost = networkInt + 1
+        let usableCount = Int(broadcastInt - firstHost) // excludes the broadcast address itself
+        let count = min(usableCount, maxHosts)
+        guard count > 0 else { return [] }
 
-        let capped = lastOctetRange.prefix(maxHosts)
-        return capped.map { "\(network[0]).\(network[1]).\(network[2]).\($0)" }
+        return (0..<count).map { uint32ToIPv4(firstHost + UInt32($0)) }
+    }
+
+    /// Best-effort default-gateway guess: the subnet's first usable address,
+    /// which is the router on the overwhelming majority of home/office
+    /// networks. Not guaranteed — there's no public iOS API for the real
+    /// default route — but good enough to make sure the router shows up in
+    /// the device list explicitly rather than hoping it happens to answer
+    /// one of the swept ports.
+    static func gatewayGuess(for local: LocalAddress) -> String? {
+        guard let ipInt = ipv4ToUInt32(local.ip), let maskInt = ipv4ToUInt32(local.subnetMask) else { return nil }
+        let networkInt = ipInt & maskInt
+        return uint32ToIPv4(networkInt + 1)
+    }
+
+    private static func ipv4ToUInt32(_ ip: String) -> UInt32? {
+        let parts = ip.split(separator: ".").compactMap { UInt32($0) }
+        guard parts.count == 4, parts.allSatisfy({ $0 <= 255 }) else { return nil }
+        return (parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3]
+    }
+
+    private static func uint32ToIPv4(_ value: UInt32) -> String {
+        "\((value >> 24) & 0xFF).\((value >> 16) & 0xFF).\((value >> 8) & 0xFF).\(value & 0xFF)"
     }
 }

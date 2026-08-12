@@ -9,18 +9,39 @@ struct DeviceDetailView: View {
 
     private var device: Device { viewModel.device }
 
+    private var platform: DevicePlatform {
+        PlatformGuesser.guess(for: device)
+    }
+
     var body: some View {
         List {
             Section("Информация") {
                 LabeledContent("IP-адрес", value: device.ipAddress)
+                if device.isGateway {
+                    Label("Роутер (шлюз сети)", systemImage: "wifi.router.fill")
+                        .foregroundStyle(.blue)
+                }
                 if let hostname = device.hostname {
                     LabeledContent("Имя хоста", value: hostname)
                 }
                 if let bonjour = device.bonjourName {
                     LabeledContent("Bonjour", value: bonjour)
                 }
+                if platform != .unknown {
+                    LabeledContent("Платформа (эвристика)", value: platform.label)
+                }
+                if let mac = device.macAddress {
+                    LabeledContent("MAC-адрес", value: mac)
+                    if let vendor = MacVendorLookup.vendor(forMac: mac) {
+                        LabeledContent("Производитель", value: vendor)
+                    }
+                } else {
+                    Text("MAC пока не определён — обычно появляется после того, как ОС уже обменялась пакетами с этим хостом (наш скан это и делает); если устройство отвечает только на ICMP, его может не быть в ARP-таблице сразу.")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
                 if let ms = device.responseTimeMs {
-                    LabeledContent("Отклик", value: "\(Int(ms)) ms")
+                    LabeledContent("Отклик (скан)", value: "\(Int(ms)) ms")
                 }
                 if device.isCamera {
                     Label(
@@ -28,6 +49,37 @@ struct DeviceDetailView: View {
                         systemImage: "video.fill"
                     )
                     .foregroundStyle(.orange)
+                }
+            }
+
+            Section("Действия") {
+                Button {
+                    viewModel.runPing()
+                } label: {
+                    HStack {
+                        Image(systemName: "dot.radiowaves.left.and.right")
+                        if viewModel.isPinging {
+                            Text("Пингую…")
+                        } else if let ms = viewModel.lastPingMs {
+                            Text("Пинг: \(Int(ms)) ms")
+                        } else {
+                            Text("Пинг")
+                        }
+                        Spacer()
+                        if viewModel.isPinging { ProgressView() }
+                    }
+                }
+                .disabled(viewModel.isPinging)
+
+                if device.macAddress != nil {
+                    Button {
+                        viewModel.sendWakeOnLAN()
+                    } label: {
+                        HStack {
+                            Image(systemName: "power")
+                            Text(viewModel.wolSent ? "Magic packet отправлен" : "Разбудить (Wake on LAN)")
+                        }
+                    }
                 }
             }
 

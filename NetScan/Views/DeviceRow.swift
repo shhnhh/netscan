@@ -7,14 +7,38 @@ struct DeviceRow: View {
         device.findings.contains { $0.severity == .critical }
     }
 
+    private var platform: DevicePlatform {
+        PlatformGuesser.guess(for: device)
+    }
+
+    private var leadingSymbol: String {
+        if device.isGateway { return "wifi.router.fill" }
+        return platform.symbolName
+    }
+
+    private var leadingTint: Color {
+        device.isGateway ? .blue : .green
+    }
+
+    private var subtitle: String {
+        var parts = [device.ipAddress]
+        if device.isGateway {
+            parts.append("роутер")
+        } else if platform != .unknown {
+            parts.append(platform.label)
+        }
+        return parts.joined(separator: " · ")
+    }
+
     var body: some View {
         HStack {
-            Image(systemName: "network")
-                .foregroundStyle(.green)
+            Image(systemName: leadingSymbol)
+                .foregroundStyle(leadingTint)
+                .frame(width: 22)
             VStack(alignment: .leading) {
                 Text(device.displayName)
                     .font(.body)
-                Text(device.ipAddress)
+                Text(subtitle)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

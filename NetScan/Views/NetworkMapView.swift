@@ -13,18 +13,28 @@ struct NetworkMapView: View {
     let devices: [Device]
 
     @State private var scale: CGFloat = 1
-    @State private var lastScale: CGFloat = 1
     @State private var offset: CGSize = .zero
     @State private var lastOffset: CGSize = .zero
-    @State private var didFit = false
 
-    private var ringRadius: CGFloat {
-        max(140, CGFloat(devices.count) * 11)
+    /// Devices arranged in concentric rings instead of one single circle —
+    /// with hundreds of devices, one ring makes the radius (and therefore
+    /// the distance from the router to *every* node) huge, so opening the
+    /// map centered on the router shows nothing but the router. Rings keep
+    /// the first couple dozen devices close by, and the rest reachable by
+    /// panning/zooming outward.
+    private let devicesPerRing = 14
+    private let baseRadius: CGFloat = 130
+    private let ringSpacing: CGFloat = 100
+
+    private var ringCount: Int {
+        devices.isEmpty ? 0 : (devices.count - 1) / devicesPerRing + 1
     }
 
-    private var canvasSize: CGFloat {
-        ringRadius * 2 + 140
+    private var canvasRadius: CGFloat {
+        baseRadius + CGFloat(max(ringCount - 1, 0)) * ringSpacing + 70
     }
+
+    private var canvasSize: CGFloat { canvasRadius * 2 }
 
     private var showLabels: Bool {
         scale > 0.9
@@ -36,7 +46,7 @@ struct NetworkMapView: View {
 
             ZStack {
                 ForEach(Array(devices.enumerated()), id: \.element.id) { index, device in
-                    let point = position(for: index, total: devices.count, center: center)
+                    let point = position(for: index, center: center)
                     Path { path in
                         path.move(to: center)
                         path.addLine(to: point)
@@ -45,7 +55,7 @@ struct NetworkMapView: View {
                 }
 
                 ForEach(Array(devices.enumerated()), id: \.element.id) { index, device in
-                    let point = position(for: index, total: devices.count, center: center)
+                    let point = position(for: index, center: center)
                     NavigationLink(value: device) {
                         DeviceMapNode(device: device, showLabel: showLabels)
                     }
@@ -64,9 +74,19 @@ struct NetworkMapView: View {
                 SimultaneousGesture(
                     MagnificationGesture()
                         .onChanged { value in
-                            scale = min(max(lastScale * value, 0.15), 4)
+                            let newScale = min(max(scale * value, 0.1), 5)
+                            // Keep whatever's currently at screen-center under
+                            // screen-center as scale changes, instead of the
+                            // zoom snapping back toward the canvas's own
+                            // center (the router) every time you pinch after
+                            // panning away from it.
+                            let ratio = newScale / scale
+                            offset = CGSize(width: offset.width * ratio, height: offset.height * ratio)
+                            scale = newScale
                         }
-                        .onEnded { _ in lastScale = scale },
+                        .onEnded { _ in
+                            lastOffset = offset
+                        },
                     DragGesture()
                         .onChanged { value in
                             offset = CGSize(
@@ -78,20 +98,13 @@ struct NetworkMapView: View {
                 )
             )
             .clipped()
-            .onAppear {
-                guard !didFit else { return }
-                didFit = true
-                let fit = min(1, min(geo.size.width, geo.size.height) / canvasSize)
-                scale = fit
-                lastScale = fit
-            }
         }
         .navigationTitle("Карта сети (\(devices.count))")
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                Button("Сброс") {
+                Button("Центр") {
                     withAnimation {
-                        scale = lastScale <= 0 ? 1 : lastScale
+                        scale = 1
                         offset = .zero
                         lastOffset = .zero
                     }
@@ -108,13 +121,19 @@ struct NetworkMapView: View {
         }
     }
 
-    private func position(for index: Int, total: Int, center: CGPoint) -> CGPoint {
-        guard total > 0 else { return center }
-        let angle = (2 * .pi / CGFloat(total)) * CGFloat(index) - .pi / 2
-        return CGPoint(
-            x: center.x + ringRadius * cos(angle),
-            y: center.y + ringRadius * sin(angle)
-        )
+    private func position(for index: Int, center: CGPoint) -> CGPoint {
+        let ring = index / devicesPerRing
+        let ringStart = ring * devicesPerRing
+        let countInRing = min(devicesPerRing, devices.count - ringStart)
+        let slot = index - ringStart
+
+        // Stagger alternating rings by half a step so nodes don't line up
+        // radially into spokes-within-spokes.
+        let staggerOffset: CGFloat = ring.isMultiple(of: 2) ? 0 : (.pi / CGFloat(max(countInRing, 1)))
+        let angle = (2 * .pi / CGFloat(max(countInRing, 1))) * CGFloat(slot) - .pi / 2 + staggerOffset
+        let radius = baseRadius + CGFloat(ring) * ringSpacing
+
+        return CGPoint(x: center.x + radius * cos(angle), y: center.y + radius * sin(angle))
     }
 
     private func lineColor(for device: Device) -> Color {
@@ -149,16 +168,18 @@ private struct DeviceMapNode: View {
     let showLabel: Bool
 
     private var symbolName: String {
+        if device.isGateway { return "wifi.router.fill" }
         if device.isCamera { return "video.fill" }
         if device.openPorts.contains(631) || device.openPorts.contains(9100) { return "printer.fill" }
-        if device.openPorts.contains(62078) { return "iphone" }
         if device.openPorts.contains(7000) { return "airplayaudio" }
-        return "network"
+        let platform = PlatformGuesser.guess(for: device)
+        return platform == .unknown ? "network" : platform.symbolName
     }
 
     private var tint: Color {
         if device.findings.contains(where: { $0.severity == .critical }) { return .red }
         if device.findings.contains(where: { $0.severity == .warning }) { return .orange }
+        if device.isGateway { return .blue }
         return .green
     }
 

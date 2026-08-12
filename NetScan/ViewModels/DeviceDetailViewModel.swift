@@ -4,6 +4,9 @@ import Foundation
 final class DeviceDetailViewModel: ObservableObject {
     @Published private(set) var device: Device
     @Published private(set) var isDeepScanning = false
+    @Published private(set) var isPinging = false
+    @Published private(set) var lastPingMs: Double?
+    @Published private(set) var wolSent = false
 
     private let scanner = DeepPortScanner()
 
@@ -27,5 +30,24 @@ final class DeviceDetailViewModel: ObservableObject {
             device.isDeepScanned = true
             isDeepScanning = false
         }
+    }
+
+    func runPing() {
+        guard !isPinging else { return }
+        isPinging = true
+        lastPingMs = nil
+
+        Task {
+            let start = Date()
+            let alive = await ICMPPinger.ping(host: device.ipAddress, timeout: 1.5)
+            lastPingMs = alive ? Date().timeIntervalSince(start) * 1000 : nil
+            isPinging = false
+        }
+    }
+
+    func sendWakeOnLAN() {
+        guard let mac = device.macAddress else { return }
+        WakeOnLAN.send(toMac: mac)
+        wolSent = true
     }
 }

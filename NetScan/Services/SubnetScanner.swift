@@ -44,15 +44,24 @@ actor SubnetScanner {
 
     private func probe(host: String) async -> Device? {
         let start = Date()
-        var openPorts: [Int] = []
 
         async let pingAlive = ICMPPinger.ping(host: host, timeout: connectTimeout)
 
-        for port in probePorts {
-            let reachable = await connectAttempt(host: host, port: port)
-            if reachable {
-                openPorts.append(Int(port))
+        // All 5 ports fire at once instead of one after another — with a
+        // wider host list (see NetworkInfo's CIDR fix), scanning them
+        // sequentially per host would multiply the worst case (every port
+        // timing out) into several seconds per dead host.
+        let openPorts: [Int] = await withTaskGroup(of: (UInt16, Bool).self) { group in
+            for port in probePorts {
+                group.addTask {
+                    (port, await self.connectAttempt(host: host, port: port))
+                }
             }
+            var result: [Int] = []
+            for await (port, open) in group where open {
+                result.append(Int(port))
+            }
+            return result.sorted()
         }
 
         let alive = await pingAlive
