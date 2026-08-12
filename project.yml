@@ -1,0 +1,35 @@
+name: NetScan
+options:
+  bundleIdPrefix: com.korotkov
+  deploymentTarget:
+    iOS: "16.0"
+configs:
+  Debug: debug
+  Release: release
+targets:
+  NetScan:
+    type: application
+    platform: iOS
+    sources:
+      - path: NetScan
+    info:
+      path: NetScan/App/Info.plist
+      properties:
+        UILaunchScreen: {}
+        NSLocalNetworkUsageDescription: "NetScan сканирует локальную сеть, чтобы найти устройства и открытые сервисы."
+        NSBonjourServices:
+          - _http._tcp
+          - _https._tcp
+          - _ssh._tcp
+          - _ftp._tcp
+          - _smb._tcp
+          - _airplay._tcp
+          - _raop._tcp
+          - _ipp._tcp
+          - _printer._tcp
+          - _device-info._tcp
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.korotkov.netscan
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1"

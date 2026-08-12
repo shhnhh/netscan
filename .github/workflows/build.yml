@@ -1,0 +1,37 @@
+name: Build unsigned IPA
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Archive (unsigned)
+        run: |
+          xcodebuild -project NetScan.xcodeproj -scheme NetScan \
+            -sdk iphoneos -configuration Release \
+            -archivePath build/NetScan.xcarchive \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+            archive
+
+      - name: Package unsigned .ipa
+        run: |
+          mkdir -p build/Payload
+          cp -r build/NetScan.xcarchive/Products/Applications/NetScan.app build/Payload/
+          cd build && zip -r NetScan-unsigned.ipa Payload
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NetScan-unsigned-ipa
+          path: build/NetScan-unsigned.ipa
