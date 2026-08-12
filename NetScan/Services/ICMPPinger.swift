@@ -7,12 +7,6 @@ import Foundation
 /// as a second, independent liveness signal alongside TCP probing, since
 /// plenty of devices answer ICMP even with every scanned TCP port closed or
 /// filtered — this is the main gap between us and Fing on device count.
-///
-/// We deliberately don't parse the reply's IP/ICMP headers (BSD ICMP
-/// datagram sockets prepend a variable-length IP header we'd have to
-/// account for, and we can't verify that parsing on real hardware without a
-/// Mac). Any bytes back on our own ephemeral socket within the timeout are
-/// treated as "alive" — a reasonable simplification for a liveness hint.
 enum ICMPPinger {
     static func ping(host: String, timeout: TimeInterval = 0.6) async -> Bool {
         await withCheckedContinuation { continuation in
@@ -51,7 +45,30 @@ enum ICMPPinger {
 
         var buffer = [UInt8](repeating: 0, count: 128)
         let received = recv(sock, &buffer, buffer.count, 0)
-        return received > 0
+        guard received > 0 else { return false }
+        return isEchoReply(buffer: buffer, count: received, identifier: identifier)
+    }
+
+    /// BSD ICMP datagram sockets on Darwin prepend the IPv4 header to
+    /// received data (confirmed by Apple's own SimplePing sample, which
+    /// does this exact same skip) — unlike a raw "any bytes back = alive"
+    /// check, this matters because a dead host on a subnet wider than the
+    /// physical LAN can make the *router* answer with an ICMP "Destination
+    /// Unreachable" error instead of silence. That error is still "bytes
+    /// back", so without checking the actual ICMP type, every unreachable
+    /// address in the range got counted as a live device — this is what
+    /// made a scan report exactly `maxHosts` devices (the entire address
+    /// range) as "found".
+    private static func isEchoReply(buffer: [UInt8], count: Int, identifier: UInt16) -> Bool {
+        guard count >= 1 else { return false }
+        let ipHeaderLength = Int(buffer[0] & 0x0F) * 4
+        guard ipHeaderLength >= 20, count >= ipHeaderLength + 8 else { return false }
+
+        let icmpType = buffer[ipHeaderLength]
+        guard icmpType == 0 else { return false } // 0 = Echo Reply; anything else (e.g. 3 = Destination Unreachable) is not a live host answering
+
+        let replyIdentifier = (UInt16(buffer[ipHeaderLength + 4]) << 8) | UInt16(buffer[ipHeaderLength + 5])
+        return replyIdentifier == identifier
     }
 
     private static func makeEchoPacket(identifier: UInt16, sequence: UInt16) -> [UInt8] {

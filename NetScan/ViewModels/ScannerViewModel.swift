@@ -60,6 +60,7 @@ final class ScannerViewModel: ObservableObject {
                 onDeviceFound: { [weak self] device in
                     Task { @MainActor in
                         self?.upsert(device)
+                        self?.resolveHostname(for: device.ipAddress)
                     }
                 },
                 onProgress: { [weak self] completed, total in
@@ -104,12 +105,24 @@ final class ScannerViewModel: ObservableObject {
         let isAlive = await alive
         guard !scanResult.openPorts.isEmpty || isAlive else { return false }
 
-        var device = Device(id: ip, ipAddress: ip, hostname: "Роутер (предположительно)",
+        var device = Device(id: ip, ipAddress: ip, hostname: "Роутер",
                              isReachable: true, openPorts: scanResult.openPorts)
         device.portBanners = scanResult.banners
         device.isGateway = true
         upsert(device)
+        resolveHostname(for: ip)
         return true
+    }
+
+    /// Reverse DNS is a separate, slower step (a few seconds worst case) on
+    /// top of the initial liveness probe, so it runs fire-and-forget after a
+    /// device is already shown — updating its name in place once/if it
+    /// resolves, rather than delaying the device from appearing at all.
+    private func resolveHostname(for ip: String) {
+        Task {
+            guard let name = await ReverseDNSResolver.resolve(ip: ip) else { return }
+            upsert(Device(id: ip, ipAddress: ip, hostname: name))
+        }
     }
 
     /// Merges rather than overwrites: the gateway gets probed twice (its own
@@ -126,7 +139,22 @@ final class ScannerViewModel: ObservableObject {
             devices[index] = merged
         } else {
             devices.append(device)
-            devices.sort { $0.ipAddress.localizedStandardCompare($1.ipAddress) == .orderedAscending }
+        }
+        sortDevices()
+    }
+
+    /// Devices we could actually put a name to (hostname/Bonjour, including
+    /// "Это устройство"/"Роутер") float to the top, alphabetically among
+    /// themselves; anonymous IP-only entries stay below, sorted by address.
+    private func sortDevices() {
+        devices.sort { lhs, rhs in
+            let lhsNamed = lhs.hostname != nil || lhs.bonjourName != nil
+            let rhsNamed = rhs.hostname != nil || rhs.bonjourName != nil
+            if lhsNamed != rhsNamed { return lhsNamed }
+            if lhsNamed {
+                return lhs.displayName.localizedStandardCompare(rhs.displayName) == .orderedAscending
+            }
+            return lhs.ipAddress.localizedStandardCompare(rhs.ipAddress) == .orderedAscending
         }
     }
 
