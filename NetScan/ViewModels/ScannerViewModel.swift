@@ -29,9 +29,9 @@ final class ScannerViewModel: ObservableObject {
         // know it's alive, it's the one running the scan.
         upsert(Device(id: local.ip, ipAddress: local.ip, hostname: "Это устройство", isReachable: true))
 
-        bonjourScanner.start { [weak self] name, _ in
+        bonjourScanner.start { [weak self] name, ip in
             Task { @MainActor in
-                self?.mergeBonjourName(name)
+                self?.upsert(Device(id: ip, ipAddress: ip, bonjourName: name))
             }
         }
 
@@ -125,17 +125,26 @@ final class ScannerViewModel: ObservableObject {
         }
     }
 
-    /// Merges rather than overwrites: the gateway gets probed twice (its own
-    /// dedicated wider probe, plus the regular sweep since it's a normal
-    /// host too), and whichever result lands second shouldn't erase the
-    /// richer one.
+    /// Merges rather than overwrites: a device can get upserted several
+    /// times independently (initial sweep, gateway probe, reverse DNS,
+    /// Bonjour resolution — each only knows a slice of the picture), and
+    /// whichever lands later shouldn't erase what an earlier pass already
+    /// found. Starting `merged` from the *existing* entry and only layering
+    /// on genuinely new info from the incoming one (rather than the other
+    /// way round) matters: an incoming partial update — e.g. reverse DNS
+    /// only setting `hostname` — carries default/empty values for
+    /// everything else, and starting from the incoming struct would silently
+    /// reset `isReachable`, `responseTimeMs`, etc. back to their defaults.
     private func upsert(_ device: Device) {
         if let index = devices.firstIndex(where: { $0.id == device.id }) {
-            var merged = device
-            merged.openPorts = Array(Set(devices[index].openPorts).union(device.openPorts)).sorted()
-            merged.isGateway = devices[index].isGateway || device.isGateway
-            merged.portBanners = devices[index].portBanners.merging(device.portBanners) { _, new in new }
-            if device.hostname == nil { merged.hostname = devices[index].hostname }
+            var merged = devices[index]
+            merged.openPorts = Array(Set(merged.openPorts).union(device.openPorts)).sorted()
+            merged.isGateway = merged.isGateway || device.isGateway
+            merged.isReachable = merged.isReachable || device.isReachable
+            merged.portBanners = merged.portBanners.merging(device.portBanners) { _, new in new }
+            if let responseTimeMs = device.responseTimeMs { merged.responseTimeMs = responseTimeMs }
+            if let hostname = device.hostname { merged.hostname = hostname }
+            if let bonjourName = device.bonjourName { merged.bonjourName = bonjourName }
             devices[index] = merged
         } else {
             devices.append(device)
@@ -156,12 +165,5 @@ final class ScannerViewModel: ObservableObject {
             }
             return lhs.ipAddress.localizedStandardCompare(rhs.ipAddress) == .orderedAscending
         }
-    }
-
-    /// Bonjour results don't carry the resolved IP directly in the summary handler;
-    /// this is a placeholder for name correlation, refined once we resolve endpoints.
-    private func mergeBonjourName(_ name: String) {
-        // Intentionally left minimal for the MVP — full IP correlation requires
-        // resolving each NWBrowser.Result.endpoint via NWConnection, added next.
     }
 }
