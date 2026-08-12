@@ -105,6 +105,33 @@ final class ScannerViewModel: ObservableObject {
             // Once MACs are as complete as they'll get, compare against the
             // network's history to flag new arrivals and update the baseline.
             self.markNewDevices()
+            self.applyQuickSecurity()
+        }
+    }
+
+    /// Number of devices with at least a warning-level issue — drives the
+    /// summary line on the device list.
+    var devicesWithIssues: Int {
+        devices.filter { device in
+            device.findings.contains { $0.severity >= .warning }
+        }.count
+    }
+
+    /// Runs the port-based security heuristics on every device right after the
+    /// sweep, so risky hosts light up in the list without the user opening
+    /// each one. Skips devices already deep-scanned (their findings include
+    /// banner analysis, which is richer than what the sweep's ports alone
+    /// give) so this never downgrades a manual deep scan.
+    private func applyQuickSecurity() {
+        for index in devices.indices where !devices[index].isDeepScanned {
+            let analysis = SecurityAnalyzer.analyze(
+                openPorts: devices[index].openPorts,
+                banners: devices[index].portBanners)
+            devices[index].findings = analysis.findings
+            if analysis.isCamera { devices[index].isCamera = true }
+            if devices[index].cameraVendor == nil {
+                devices[index].cameraVendor = analysis.cameraVendor
+            }
         }
     }
 

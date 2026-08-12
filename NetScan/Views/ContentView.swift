@@ -23,6 +23,19 @@ struct ContentView: View {
                     Text(status)
                         .foregroundStyle(.secondary)
                 }
+                if !viewModel.isScanning && !viewModel.devices.isEmpty {
+                    if viewModel.devicesWithIssues > 0 {
+                        Label("\(viewModel.devicesWithIssues) \(Self.deviceWord(viewModel.devicesWithIssues)) с потенциальными проблемами",
+                              systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    } else {
+                        Label("Явных проблем безопасности не найдено",
+                              systemImage: "checkmark.shield.fill")
+                            .font(.caption)
+                            .foregroundStyle(.green)
+                    }
+                }
                 ForEach(viewModel.devices) { device in
                     NavigationLink(value: device) {
                         DeviceRow(device: device)
@@ -68,6 +81,17 @@ struct ContentView: View {
                 }
             }
         }
+    }
+}
+
+extension ContentView {
+    static func deviceWord(_ n: Int) -> String {
+        let mod100 = n % 100
+        let mod10 = n % 10
+        if (11...14).contains(mod100) { return "устройств" }
+        if mod10 == 1 { return "устройство" }
+        if (2...4).contains(mod10) { return "устройства" }
+        return "устройств"
     }
 }
 
