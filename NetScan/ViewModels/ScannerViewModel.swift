@@ -42,12 +42,15 @@ final class ScannerViewModel: ObservableObject {
         // answer any of them on 80/443 the way we probe — so it can end up
         // missing entirely. Give it its own wider, dedicated probe alongside
         // the main sweep instead of just hoping it turns up. There's no
-        // public API for the real default-route IP, so try both plausible
-        // gateway addresses (first-usable and last-usable in the subnet) —
-        // whichever actually answers gets flagged as the router.
-        for gatewayIP in NetworkInfo.gatewayGuesses(for: local) where gatewayIP != local.ip {
-            Task {
-                await self.probeGateway(ip: gatewayIP)
+        // public API for the real default-route IP, so we have a couple of
+        // plausible gateway addresses (first-usable, last-usable) — tried
+        // *in order*, one at a time, stopping at the first that answers.
+        // Trying them all in parallel and labeling every responder "the
+        // router" is how you end up with two routers in the list.
+        let gatewayCandidates = NetworkInfo.gatewayGuesses(for: local).filter { $0 != local.ip }
+        Task {
+            for candidate in gatewayCandidates {
+                if await self.probeGateway(ip: candidate) { break }
             }
         }
 
@@ -80,20 +83,26 @@ final class ScannerViewModel: ObservableObject {
         isScanning = false
     }
 
-    private func probeGateway(ip: String) async {
+    /// Probes one gateway candidate. Returns whether it answered (alive or
+    /// had an open port) — the caller stops trying further candidates as
+    /// soon as one succeeds, so only one device ever ends up flagged as
+    /// the router.
+    @discardableResult
+    private func probeGateway(ip: String) async -> Bool {
         let scanner = DeepPortScanner()
         async let result = scanner.scan(host: ip)
         async let alive = ICMPPinger.ping(host: ip, timeout: 1.0)
 
         let scanResult = await result
         let isAlive = await alive
-        guard !scanResult.openPorts.isEmpty || isAlive else { return }
+        guard !scanResult.openPorts.isEmpty || isAlive else { return false }
 
         var device = Device(id: ip, ipAddress: ip, hostname: "Роутер (предположительно)",
                              isReachable: true, openPorts: scanResult.openPorts)
         device.portBanners = scanResult.banners
         device.isGateway = true
         upsert(device)
+        return true
     }
 
     /// Merges rather than overwrites: the gateway gets probed twice (its own
