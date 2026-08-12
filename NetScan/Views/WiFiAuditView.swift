@@ -4,7 +4,12 @@ struct WiFiAuditView: View {
     @State private var network: WiFiSecurityInfo.CurrentNetwork?
     @State private var isEvilTwinSuspected = false
     @State private var isLoading = true
-    @State private var notAvailable = false
+    @State private var failureReason: FailureReason?
+
+    private enum FailureReason {
+        case noWiFi
+        case permissionDenied
+    }
 
     var body: some View {
         List {
@@ -44,10 +49,19 @@ struct WiFiAuditView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-            } else if notAvailable {
+            } else if let failureReason {
                 Section {
-                    Text("Не удалось получить данные о сети. Убедись, что подключён к Wi-Fi.")
-                        .foregroundStyle(.secondary)
+                    switch failureReason {
+                    case .noWiFi:
+                        Text("Не подключён к Wi-Fi.")
+                            .foregroundStyle(.secondary)
+                    case .permissionDenied:
+                        Label("iOS не отдаёт данные о сети этому приложению", systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                        Text("Wi-Fi подключён, но система не даёт приложению данные о сети — скорее всего разрешение \"Access WiFi Information\" не подхватилось при переподписи через iLoader. Это известное ограничение сборки без Mac и платного аккаунта разработчика.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
         }
@@ -64,9 +78,17 @@ struct WiFiAuditView: View {
         isLoading = true
         let current = await WiFiSecurityInfo.fetchCurrent()
         network = current
-        notAvailable = current == nil
         if let current {
+            failureReason = nil
             isEvilTwinSuspected = WiFiHistoryStore.checkAndRecord(ssid: current.ssid, bssid: current.bssid)
+        } else {
+            // NEHotspotNetwork returned nothing — could genuinely mean "not on
+            // Wi-Fi", or could mean iOS is withholding the data from this app
+            // (missing entitlement). NetworkInfo.currentWiFiAddress() reads the
+            // en0 interface IP directly via getifaddrs, which needs no special
+            // entitlement and is known to work — use it as ground truth to
+            // tell the two cases apart instead of always blaming "not connected".
+            failureReason = NetworkInfo.currentWiFiAddress() == nil ? .noWiFi : .permissionDenied
         }
         isLoading = false
     }
