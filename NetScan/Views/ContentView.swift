@@ -63,6 +63,11 @@ struct ContentView: View {
                         NavigationLink(value: ContentRoute.security) {
                             Image(systemName: "lock.shield")
                         }
+                        if !viewModel.isScanning && !viewModel.devices.isEmpty {
+                            ShareLink(item: viewModel.reportText) {
+                                Image(systemName: "square.and.arrow.up")
+                            }
+                        }
                     }
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {

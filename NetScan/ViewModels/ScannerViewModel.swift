@@ -117,6 +117,36 @@ final class ScannerViewModel: ObservableObject {
         }.count
     }
 
+    /// Plain-text scan report for sharing/export via ShareLink.
+    var reportText: String {
+        var lines = ["NetScan — отчёт о сканировании сети"]
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HH:mm"
+        lines.append("Дата: \(formatter.string(from: Date()))")
+        lines.append("Устройств найдено: \(devices.count)")
+        if devicesWithIssues > 0 {
+            lines.append("С потенциальными проблемами: \(devicesWithIssues)")
+        }
+        lines.append("")
+
+        for device in devices {
+            lines.append("• \(device.displayName) (\(device.ipAddress))")
+            if let mac = device.macAddress {
+                lines.append("  MAC: \(mac)" + (device.macVendor.map { " (\($0))" } ?? ""))
+            }
+            if device.isNewDevice {
+                lines.append("  [новое устройство в сети]")
+            }
+            if !device.openPorts.isEmpty {
+                lines.append("  Порты: \(device.openPorts.map(String.init).joined(separator: ", "))")
+            }
+            for finding in device.findings {
+                lines.append("  [\(finding.severity.label)] \(finding.title)")
+            }
+        }
+        return lines.joined(separator: "\n")
+    }
+
     /// Runs the port-based security heuristics on every device right after the
     /// sweep, so risky hosts light up in the list without the user opening
     /// each one. Skips devices already deep-scanned (their findings include
