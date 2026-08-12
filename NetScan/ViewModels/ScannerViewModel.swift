@@ -70,6 +70,13 @@ final class ScannerViewModel: ObservableObject {
                     }
                 }
             )
+            // The ARP cache is populated as a side effect of the probing we
+            // just did (ping/TCP forces the kernel to resolve each host's
+            // MAC), so read it once the sweep is done and fold the addresses
+            // into the devices. Run it a second time shortly after: some
+            // entries land in the cache slightly after their probe completes.
+            await self.applyARPTable()
+
             await MainActor.run {
                 self.isScanning = false
                 if localNetworkAccessLikelyBlocked {
@@ -83,6 +90,12 @@ final class ScannerViewModel: ObservableObject {
                     self.statusMessage = "Кроме этого устройства ничего не найдено"
                 }
             }
+
+            // Second pass: a MAC often lands in the ARP cache a beat after
+            // its host answered, so a delayed re-read picks up the stragglers
+            // the first pass missed.
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            await self.applyARPTable()
         }
     }
 
@@ -112,6 +125,27 @@ final class ScannerViewModel: ObservableObject {
         upsert(device)
         resolveHostname(for: ip)
         return true
+    }
+
+    /// Reads the kernel ARP cache and folds each MAC (plus its guessed
+    /// vendor) into the matching device already in the list. Only annotates
+    /// devices we already found some other way — it does not add hosts, since
+    /// the cache can hold stale entries for addresses no longer present.
+    private func applyARPTable() async {
+        let snapshot = await ARPResolver.snapshot()
+        guard !snapshot.isEmpty else { return }
+        var changed = false
+        for (ip, entry) in snapshot {
+            guard let index = devices.firstIndex(where: { $0.id == ip }) else { continue }
+            if devices[index].macAddress != entry.mac {
+                devices[index].macAddress = entry.mac
+                devices[index].macVendor = entry.vendor
+                changed = true
+            }
+        }
+        // A newly-attached vendor can turn an anonymous IP into a "named"
+        // device, which changes where it belongs in the ordering.
+        if changed { sortDevices() }
     }
 
     /// Reverse DNS is a separate, slower step (a few seconds worst case) on
@@ -152,13 +186,14 @@ final class ScannerViewModel: ObservableObject {
         sortDevices()
     }
 
-    /// Devices we could actually put a name to (hostname/Bonjour, including
-    /// "Это устройство"/"Роутер") float to the top, alphabetically among
-    /// themselves; anonymous IP-only entries stay below, sorted by address.
+    /// Devices we could put any kind of name to — hostname, Bonjour, or at
+    /// least a MAC vendor, plus the "Это устройство"/"Роутер" placeholders —
+    /// float to the top, alphabetically among themselves; fully anonymous
+    /// IP-only entries stay below, sorted by address.
     private func sortDevices() {
         devices.sort { lhs, rhs in
-            let lhsNamed = lhs.hostname != nil || lhs.bonjourName != nil
-            let rhsNamed = rhs.hostname != nil || rhs.bonjourName != nil
+            let lhsNamed = lhs.hostname != nil || lhs.bonjourName != nil || lhs.macVendor != nil
+            let rhsNamed = rhs.hostname != nil || rhs.bonjourName != nil || rhs.macVendor != nil
             if lhsNamed != rhsNamed { return lhsNamed }
             if lhsNamed {
                 return lhs.displayName.localizedStandardCompare(rhs.displayName) == .orderedAscending

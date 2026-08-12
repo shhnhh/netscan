@@ -10,6 +10,11 @@ struct Device: Identifiable, Hashable {
     var openPorts: [Int] = []
     var isGateway: Bool = false
 
+    // Read from the kernel ARP cache (ARPTable) after the host has been
+    // probed. macVendor is derived from the MAC's OUI prefix (MacVendorLookup).
+    var macAddress: String?
+    var macVendor: String?
+
     // Populated by an on-demand deep scan (DeepPortScanner + SecurityAnalyzer),
     // not by the initial subnet sweep.
     var portBanners: [Int: String] = [:]
@@ -19,7 +24,7 @@ struct Device: Identifiable, Hashable {
     var isDeepScanned: Bool = false
 
     var displayName: String {
-        bonjourName ?? hostname ?? ipAddress
+        bonjourName ?? hostname ?? macVendor ?? ipAddress
     }
 }
 

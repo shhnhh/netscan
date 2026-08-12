@@ -27,6 +27,12 @@ struct DeviceDetailView: View {
                 if let bonjour = device.bonjourName {
                     LabeledContent("Bonjour", value: bonjour)
                 }
+                if let mac = device.macAddress {
+                    LabeledContent("MAC-адрес", value: mac)
+                }
+                if let vendor = device.macVendor {
+                    LabeledContent("Производитель (по MAC)", value: vendor)
+                }
                 if platform != .unknown {
                     LabeledContent("Платформа (эвристика)", value: platform.label)
                 }
