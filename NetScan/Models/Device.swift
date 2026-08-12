@@ -8,7 +8,6 @@ struct Device: Identifiable, Hashable {
     var isReachable: Bool = false
     var responseTimeMs: Double?
     var openPorts: [Int] = []
-    var macAddress: String?
     var isGateway: Bool = false
 
     // Populated by an on-demand deep scan (DeepPortScanner + SecurityAnalyzer),

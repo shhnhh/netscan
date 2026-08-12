@@ -30,16 +30,6 @@ struct DeviceDetailView: View {
                 if platform != .unknown {
                     LabeledContent("Платформа (эвристика)", value: platform.label)
                 }
-                if let mac = device.macAddress {
-                    LabeledContent("MAC-адрес", value: mac)
-                    if let vendor = MacVendorLookup.vendor(forMac: mac) {
-                        LabeledContent("Производитель", value: vendor)
-                    }
-                } else {
-                    Text("MAC пока не определён — обычно появляется после того, как ОС уже обменялась пакетами с этим хостом (наш скан это и делает); если устройство отвечает только на ICMP, его может не быть в ARP-таблице сразу.")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
                 if let ms = device.responseTimeMs {
                     LabeledContent("Отклик (скан)", value: "\(Int(ms)) ms")
                 }
@@ -70,17 +60,6 @@ struct DeviceDetailView: View {
                     }
                 }
                 .disabled(viewModel.isPinging)
-
-                if device.macAddress != nil {
-                    Button {
-                        viewModel.sendWakeOnLAN()
-                    } label: {
-                        HStack {
-                            Image(systemName: "power")
-                            Text(viewModel.wolSent ? "Magic packet отправлен" : "Разбудить (Wake on LAN)")
-                        }
-                    }
-                }
             }
 
             Section {

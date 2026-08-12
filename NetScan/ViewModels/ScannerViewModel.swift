@@ -64,7 +64,6 @@ final class ScannerViewModel: ObservableObject {
                 }
             )
             await MainActor.run {
-                self.attachMacAddresses()
                 self.isScanning = false
                 if self.devices.count <= 1 {
                     self.statusMessage = "Кроме этого устройства ничего не найдено"
@@ -84,23 +83,14 @@ final class ScannerViewModel: ObservableObject {
         async let alive = ICMPPinger.ping(host: ip, timeout: 1.0)
 
         let scanResult = await result
-        guard !scanResult.openPorts.isEmpty || (await alive) else { return }
+        let isAlive = await alive
+        guard !scanResult.openPorts.isEmpty || isAlive else { return }
 
         var device = Device(id: ip, ipAddress: ip, hostname: "Роутер (предположительно)",
                              isReachable: true, openPorts: scanResult.openPorts)
         device.portBanners = scanResult.banners
         device.isGateway = true
         upsert(device)
-    }
-
-    private func attachMacAddresses() {
-        let arpTable = ARPTableReader.currentEntries()
-        guard !arpTable.isEmpty else { return }
-        for index in devices.indices {
-            if let mac = arpTable[devices[index].ipAddress] {
-                devices[index].macAddress = mac
-            }
-        }
     }
 
     /// Merges rather than overwrites: the gateway gets probed twice (its own
@@ -114,7 +104,6 @@ final class ScannerViewModel: ObservableObject {
             merged.isGateway = devices[index].isGateway || device.isGateway
             merged.portBanners = devices[index].portBanners.merging(device.portBanners) { _, new in new }
             if device.hostname == nil { merged.hostname = devices[index].hostname }
-            if device.macAddress == nil { merged.macAddress = devices[index].macAddress }
             devices[index] = merged
         } else {
             devices.append(device)

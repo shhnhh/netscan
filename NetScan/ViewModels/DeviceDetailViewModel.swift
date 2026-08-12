@@ -6,7 +6,6 @@ final class DeviceDetailViewModel: ObservableObject {
     @Published private(set) var isDeepScanning = false
     @Published private(set) var isPinging = false
     @Published private(set) var lastPingMs: Double?
-    @Published private(set) var wolSent = false
 
     private let scanner = DeepPortScanner()
 
@@ -43,11 +42,5 @@ final class DeviceDetailViewModel: ObservableObject {
             lastPingMs = alive ? Date().timeIntervalSince(start) * 1000 : nil
             isPinging = false
         }
-    }
-
-    func sendWakeOnLAN() {
-        guard let mac = device.macAddress else { return }
-        WakeOnLAN.send(toMac: mac)
-        wolSent = true
     }
 }
