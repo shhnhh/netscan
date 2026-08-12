@@ -13,6 +13,7 @@ enum SecurityAnalyzer {
     }
 
     private static let cameraPorts: Set<Int> = [554, 8554, 34567, 37777, 37778]
+    private static let rtspPorts: Set<Int> = [554, 8554]
 
     private static let cameraVendorStrings: [(needle: String, vendor: String)] = [
         ("hikvision", "Hikvision"),
@@ -119,6 +120,22 @@ enum SecurityAnalyzer {
                 title: vendor.map { "Похоже на камеру (\($0))" } ?? "Похоже на камеру/видеорегистратор",
                 detail: "Обнаружены признаки видеонаблюдения (RTSP/DVR-порты или баннер устройства). Если это не твоя камера — стоит выяснить, откуда она в сети. Если твоя — проверь, что пароль администратора не заводской.",
                 port: nil))
+        }
+
+        // A DESCRIBE request that gets back anything other than "401" means
+        // the stream itself isn't behind a password — we only ever look at
+        // this one status line, never the actual video/audio.
+        for port in openPorts where rtspPorts.contains(port) {
+            guard let banner = banners[port] else { continue }
+            let statusLine = banner.split(separator: "\r\n").first.map(String.init) ?? banner
+            guard statusLine.lowercased().contains("rtsp/1.0") else { continue }
+            if !statusLine.contains("401") {
+                findings.append(SecurityFinding(
+                    severity: .critical,
+                    title: "RTSP-поток похоже открыт без пароля (порт \(port))",
+                    detail: "Сервер не запросил авторизацию. Если это не твоя камера — не подключайся к потоку и не смотри его, это уже будет просмотром чужого видео без разрешения; если есть возможность — сообщи владельцу или админу сети. Если твоя — срочно поставь пароль на камеру.",
+                    port: port))
+            }
         }
 
         for (port, banner) in banners {

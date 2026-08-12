@@ -35,7 +35,11 @@ enum BannerGrabber {
                         let request = "GET / HTTP/1.0\r\nHost: \(host)\r\nConnection: close\r\n\r\n"
                         connection.send(content: request.data(using: .utf8), completion: .contentProcessed { _ in })
                     } else if rtspPorts.contains(port) {
-                        let request = "OPTIONS rtsp://\(host):\(port)/ RTSP/1.0\r\nCSeq: 1\r\n\r\n"
+                        // DESCRIBE (not OPTIONS) because it's the request whose
+                        // 401-or-not response actually tells us whether the
+                        // stream is behind a password — this reads only the
+                        // text SDP header, never actual video/audio.
+                        let request = "DESCRIBE rtsp://\(host):\(port)/ RTSP/1.0\r\nCSeq: 1\r\nAccept: application/sdp\r\n\r\n"
                         connection.send(content: request.data(using: .utf8), completion: .contentProcessed { _ in })
                     }
                     connection.receive(minimumIncompleteLength: 1, maximumLength: 2048) { data, _, _, _ in
