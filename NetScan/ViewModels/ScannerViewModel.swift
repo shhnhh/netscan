@@ -12,6 +12,10 @@ final class ScannerViewModel: ObservableObject {
     private let subnetScanner = SubnetScanner()
     private let bonjourScanner = BonjourScanner()
 
+    /// Identifies the network for the new-device history — the gateway
+    /// address, stable across DHCP lease churn within one network.
+    private var currentNetworkKey = ""
+
     func startScan() {
         guard !isScanning else { return }
 
@@ -48,6 +52,7 @@ final class ScannerViewModel: ObservableObject {
         // Trying them all in parallel and labeling every responder "the
         // router" is how you end up with two routers in the list.
         let gatewayCandidates = NetworkInfo.gatewayGuesses(for: local).filter { $0 != local.ip }
+        currentNetworkKey = gatewayCandidates.first ?? local.ip
         Task {
             for candidate in gatewayCandidates {
                 if await self.probeGateway(ip: candidate) { break }
@@ -96,7 +101,31 @@ final class ScannerViewModel: ObservableObject {
             // the first pass missed.
             try? await Task.sleep(nanoseconds: 2_000_000_000)
             await self.applyARPTable()
+
+            // Once MACs are as complete as they'll get, compare against the
+            // network's history to flag new arrivals and update the baseline.
+            self.markNewDevices()
         }
+    }
+
+    /// Flags devices whose MAC wasn't seen on this network before, then folds
+    /// this scan's MACs into the network's baseline for next time. The very
+    /// first scan of a network establishes the baseline without flagging
+    /// anything (everything would trivially be "new" otherwise).
+    private func markNewDevices() {
+        let network = currentNetworkKey
+        guard !network.isEmpty else { return }
+
+        let macs = Set(devices.compactMap { $0.macAddress })
+        if NetworkHistoryStore.hasBaseline(network: network) {
+            let known = NetworkHistoryStore.seenMacs(network: network)
+            for index in devices.indices {
+                if let mac = devices[index].macAddress, !known.contains(mac) {
+                    devices[index].isNewDevice = true
+                }
+            }
+        }
+        NetworkHistoryStore.record(macs: macs, network: network)
     }
 
     func stopScan() {

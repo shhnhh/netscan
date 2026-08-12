@@ -15,6 +15,10 @@ struct Device: Identifiable, Hashable {
     var macAddress: String?
     var macVendor: String?
 
+    // Set when this device's MAC wasn't in the network's known set from a
+    // previous scan — i.e. a new arrival since last time (NetworkHistoryStore).
+    var isNewDevice: Bool = false
+
     // Populated by an on-demand deep scan (DeepPortScanner + SecurityAnalyzer),
     // not by the initial subnet sweep.
     var portBanners: [Int: String] = [:]
