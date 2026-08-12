@@ -27,20 +27,38 @@ enum WiFiSecurityInfo {
         case unavailable
     }
 
+    /// There are known iOS bugs/quirks (reported on Apple's own developer
+    /// forums) where fetchCurrent()'s completion handler simply never fires
+    /// — without a timeout, that hangs this whole call, and the caller's UI,
+    /// forever with no feedback. Capped so it always resolves one way or
+    /// another within a few seconds.
+    private static let fetchTimeout: TimeInterval = 5
+
     static func fetchCurrent() async -> FetchOutcome {
         let locationGranted = await LocationAuthorizer.shared.ensureAuthorized()
 
         let network = await withCheckedContinuation { (continuation: CheckedContinuation<CurrentNetwork?, Never>) in
+            var resumed = false
+            let resumeOnce: (CurrentNetwork?) -> Void = { result in
+                guard !resumed else { return }
+                resumed = true
+                continuation.resume(returning: result)
+            }
+
             NEHotspotNetwork.fetchCurrent { network in
                 guard let network else {
-                    continuation.resume(returning: nil)
+                    resumeOnce(nil)
                     return
                 }
-                continuation.resume(returning: CurrentNetwork(
+                resumeOnce(CurrentNetwork(
                     ssid: network.ssid,
                     bssid: network.bssid,
                     isSecure: network.isSecure
                 ))
+            }
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + fetchTimeout) {
+                resumeOnce(nil)
             }
         }
 
@@ -56,12 +74,26 @@ enum WiFiSecurityInfo {
 /// isn't reliably enough either, so this also fires a one-shot location
 /// request after getting permission, since that's the pattern Apple's own
 /// forum thread on this exact issue confirms works.
+///
+/// Deliberately does NOT wait on the CLLocationManagerDelegate callback to
+/// find out when the user has answered the system prompt — there are
+/// reports of that callback not firing reliably, and there's no reliable
+/// way to tell "still waiting on the delegate" apart from "waiting on the
+/// user to tap something in the system alert" from inside the app process.
+/// Polling `authorizationStatus` directly sidesteps both problems: it picks
+/// up the answer the moment it's set regardless of whether the delegate
+/// fires, and the loop only ends the wait, it never blocks the human from
+/// taking their time on the actual system dialog.
 final class LocationAuthorizer: NSObject, CLLocationManagerDelegate {
     static let shared = LocationAuthorizer()
 
+    /// 120 * 0.5s = 60s total — generous for a human decision, but still
+    /// bounded so a genuinely broken permission flow resolves instead of
+    /// hanging the caller (and its "Проверяю…" spinner) forever.
+    private static let maxPolls = 120
+    private static let pollInterval: UInt64 = 500_000_000
+
     private let manager = CLLocationManager()
-    private var resumed = false
-    private var continuation: CheckedContinuation<Bool, Never>?
 
     private override init() {
         super.init()
@@ -81,22 +113,23 @@ final class LocationAuthorizer: NSObject, CLLocationManagerDelegate {
             return false
         }
 
-        return await withCheckedContinuation { continuation in
-            self.resumed = false
-            self.continuation = continuation
-            manager.requestWhenInUseAuthorization()
-        }
-    }
+        manager.requestWhenInUseAuthorization()
 
-    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        guard !resumed, let continuation else { return }
-        let status = manager.authorizationStatus
-        guard status != .notDetermined else { return }
-        resumed = true
-        self.continuation = nil
-        let granted = status == .authorizedWhenInUse || status == .authorizedAlways
-        if granted { manager.requestLocation() }
-        continuation.resume(returning: granted)
+        for _ in 0..<Self.maxPolls {
+            try? await Task.sleep(nanoseconds: Self.pollInterval)
+            switch manager.authorizationStatus {
+            case .authorizedWhenInUse, .authorizedAlways:
+                manager.requestLocation()
+                return true
+            case .denied, .restricted:
+                return false
+            case .notDetermined:
+                continue
+            @unknown default:
+                return false
+            }
+        }
+        return false
     }
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {}
