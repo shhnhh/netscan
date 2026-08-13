@@ -117,7 +117,21 @@ struct netscan_rt_msghdr {
 
         if (sdl->sdl_family == AF_LINK && sdl->sdl_alen == 6) {
             unsigned char *mac = (unsigned char *)LLADDR(sdl);
-            if (mac[0] || mac[1] || mac[2] || mac[3] || mac[4] || mac[5]) {
+            BOOL isAllZero = !(mac[0] || mac[1] || mac[2] || mac[3] || mac[4] || mac[5]);
+            // 02:00:00:00:00:00 is Apple's long-standing placeholder for a
+            // hardware address the calling app isn't allowed to see — the
+            // same sentinel getifaddrs() has returned for *your own*
+            // en0 MAC since iOS 7 without the right entitlement. Seeing it
+            // here, for every single ARP-cache entry regardless of which
+            // real device it is, points at the same masking having been
+            // extended to this sysctl path too on newer iOS: exposing it
+            // as if it were a real MAC would make every device look
+            // identical (same "vendor", same identity for new-device
+            // tracking, a Wake-on-LAN button that sends a packet to nothing)
+            // — worse than just reporting no MAC at all.
+            BOOL isMaskedPlaceholder = mac[0] == 0x02 && mac[1] == 0 && mac[2] == 0
+                && mac[3] == 0 && mac[4] == 0 && mac[5] == 0;
+            if (!isAllZero && !isMaskedPlaceholder) {
                 char ipstr[INET_ADDRSTRLEN];
                 if (inet_ntop(AF_INET, &sin->sin_addr, ipstr, sizeof(ipstr))) {
                     NSString *ip = [NSString stringWithUTF8String:ipstr];
