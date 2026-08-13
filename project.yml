@@ -46,3 +46,23 @@ targets:
         ASSETCATALOG_COMPILER_GENERATE_ASSET_SYMBOLS: NO
         SWIFT_OBJC_BRIDGING_HEADER: NetScan/NetScan-Bridging-Header.h
         CLANG_ENABLE_MODULES: YES
+  NetScanTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: NetScanTests
+    dependencies:
+      - target: NetScan
+    settings:
+      base:
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1"
+schemes:
+  NetScan:
+    build:
+      targets:
+        NetScan: all
+        NetScanTests: [test]
+    test:
+      targets:
+        - NetScanTests

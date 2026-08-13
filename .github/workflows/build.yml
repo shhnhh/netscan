@@ -6,8 +6,26 @@ on:
     branches: [main]
 
 jobs:
+  test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Run unit tests
+        run: |
+          xcodebuild -project NetScan.xcodeproj -scheme NetScan \
+            -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 15' \
+            test
+
   build:
     runs-on: macos-latest
+    needs: test
     steps:
       - uses: actions/checkout@v4
 

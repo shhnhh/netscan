@@ -111,7 +111,7 @@ enum SSDPScanner {
         return results
     }
 
-    private static func extractHeader(_ key: String, from response: String) -> String? {
+    static func extractHeader(_ key: String, from response: String) -> String? {
         for line in response.split(separator: "\r\n") {
             let parts = line.split(separator: ":", maxSplits: 1)
             guard parts.count == 2 else { continue }

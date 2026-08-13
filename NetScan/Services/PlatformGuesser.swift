@@ -4,7 +4,7 @@ import Foundation
 /// open ports, Bonjour/hostname strings. No TTL fingerprinting, no ARP
 /// vendor-based OS inference like Fing does with a full OUI database on a
 /// desktop OS; this is deliberately coarse.
-enum DevicePlatform {
+enum DevicePlatform: Equatable {
     case apple
     case windows
     case android

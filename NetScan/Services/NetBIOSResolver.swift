@@ -70,7 +70,7 @@ enum NetBIOSResolver {
     /// up front. NetBIOS names are transmitted "first-level encoded": each
     /// raw byte's two nibbles become two ASCII letters (0x41 + nibble),
     /// turning the 16-byte name into a 32-byte encoded label.
-    private static func makeNBSTATQuery() -> [UInt8] {
+    static func makeNBSTATQuery() -> [UInt8] {
         var packet: [UInt8] = []
         packet.append(contentsOf: [0x82, 0x28]) // transaction ID
         packet.append(contentsOf: [0x00, 0x00]) // flags: standard query
@@ -92,7 +92,7 @@ enum NetBIOSResolver {
     /// Walks the response as a generic DNS-shaped message (question section
     /// may or may not be echoed back, depending on implementation) to reach
     /// the NBSTAT answer's RDATA, rather than assuming a fixed offset.
-    private static func parseNBSTATResponse(buffer: [UInt8], count: Int) -> String? {
+    static func parseNBSTATResponse(buffer: [UInt8], count: Int) -> String? {
         guard count >= 12 else { return nil }
         let qdcount = Int(buffer[4]) << 8 | Int(buffer[5])
         let ancount = Int(buffer[6]) << 8 | Int(buffer[7])
@@ -122,7 +122,7 @@ enum NetBIOSResolver {
         return nil
     }
 
-    private static func skipName(_ buffer: [UInt8], _ start: Int, _ count: Int) -> Int? {
+    static func skipName(_ buffer: [UInt8], _ start: Int, _ count: Int) -> Int? {
         guard start < count else { return nil }
         if buffer[start] & 0xC0 == 0xC0 {
             return start + 2
@@ -139,7 +139,7 @@ enum NetBIOSResolver {
     /// space-padded name + 1 byte suffix + 2 bytes flags). Suffix 0x00 is
     /// the machine's own "workstation" name; the flags' group bit (0x8000)
     /// marks workgroup/domain names, which aren't what we want here.
-    private static func parseNodeNameTable(buffer: [UInt8], start: Int, rdlength: Int) -> String? {
+    static func parseNodeNameTable(buffer: [UInt8], start: Int, rdlength: Int) -> String? {
         guard rdlength > 0, start < buffer.count else { return nil }
         let numNames = Int(buffer[start])
         var offset = start + 1

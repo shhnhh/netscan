@@ -92,7 +92,7 @@ enum ICMPPinger {
     ///    its own per-socket value, so our sent id never matches the reply.
     ///    The kernel already only delivers replies for this socket's own
     ///    sends, so that check bought nothing but false negatives — dropped.
-    private static func isEchoReply(buffer: [UInt8], count: Int) -> Bool {
+    static func isEchoReply(buffer: [UInt8], count: Int) -> Bool {
         guard count >= 1 else { return false }
 
         var icmpOffset = 0
@@ -106,7 +106,7 @@ enum ICMPPinger {
         return buffer[icmpOffset] == 0 // ICMP type 0 = Echo Reply
     }
 
-    private static func makeEchoPacket(identifier: UInt16, sequence: UInt16) -> [UInt8] {
+    static func makeEchoPacket(identifier: UInt16, sequence: UInt16) -> [UInt8] {
         var bytes: [UInt8] = [
             8, 0, 0, 0, // type (echo request), code, checksum placeholder
             UInt8(identifier >> 8), UInt8(identifier & 0xFF),
@@ -120,7 +120,7 @@ enum ICMPPinger {
         return bytes
     }
 
-    private static func icmpChecksum(_ bytes: [UInt8]) -> UInt16 {
+    static func icmpChecksum(_ bytes: [UInt8]) -> UInt16 {
         var sum: UInt32 = 0
         var buffer = bytes
         if buffer.count % 2 != 0 { buffer.append(0) }

@@ -121,7 +121,7 @@ final class BonjourScanner {
     /// "682F678C480A@MacBook" — rather than just the friendly name. Strip
     /// that machine-ID prefix so the display name matches what the device
     /// actually calls itself everywhere else.
-    private static func cleanServiceName(_ name: String) -> String {
+    static func cleanServiceName(_ name: String) -> String {
         guard let atIndex = name.firstIndex(of: "@") else { return name }
         let prefix = name[name.startIndex..<atIndex]
         guard prefix.count == 12, prefix.allSatisfy({ $0.isHexDigit }) else { return name }
@@ -134,7 +134,7 @@ final class BonjourScanner {
     /// off an active connection over Wi-Fi. That suffix isn't part of the
     /// address and breaks matching it against the plain-IP device list, so
     /// it's stripped before the address is used anywhere else.
-    private static func plainAddress(_ raw: String) -> String {
+    static func plainAddress(_ raw: String) -> String {
         raw.split(separator: "%", maxSplits: 1).first.map(String.init) ?? raw
     }
 }
