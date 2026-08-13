@@ -24,6 +24,9 @@ final class ScannerViewModel: ObservableObject {
     /// Same dedupe idea as `queriedLockdownIPs`, for NetBIOS (139/445) hosts.
     private var queriedNetBIOSIPs: Set<String> = []
 
+    /// Same dedupe idea again, for the direct-to-device mDNS PTR query.
+    private var queriedMDNSIPs: Set<String> = []
+
     func startScan() {
         guard !isScanning else { return }
 
@@ -38,6 +41,7 @@ final class ScannerViewModel: ObservableObject {
         scannedCount = 0
         queriedLockdownIPs.removeAll()
         queriedNetBIOSIPs.removeAll()
+        queriedMDNSIPs.removeAll()
 
         // Always show this device — it doesn't need probing, we already
         // know it's alive, it's the one running the scan.
@@ -98,6 +102,7 @@ final class ScannerViewModel: ObservableObject {
                     Task { @MainActor in
                         self?.upsert(device)
                         self?.resolveHostname(for: device.ipAddress)
+                        self?.resolveMDNSHostname(for: device.ipAddress)
                         if device.openPorts.contains(WellKnownPort.lockdown.rawValue) {
                             self?.resolveLockdownName(for: device.ipAddress)
                         }
@@ -279,6 +284,18 @@ final class ScannerViewModel: ObservableObject {
     private func resolveHostname(for ip: String) {
         Task {
             guard let name = await ReverseDNSResolver.resolve(ip: ip) else { return }
+            upsert(Device(id: ip, ipAddress: ip, hostname: name))
+        }
+    }
+
+    /// Asks the device itself for its name via a direct unicast mDNS PTR
+    /// query — works for anything still running an mDNSResponder/Avahi,
+    /// independent of which (if any) Bonjour service types it advertises.
+    private func resolveMDNSHostname(for ip: String) {
+        guard !queriedMDNSIPs.contains(ip) else { return }
+        queriedMDNSIPs.insert(ip)
+        Task {
+            guard let name = await MDNSReverseResolver.resolveHostname(host: ip) else { return }
             upsert(Device(id: ip, ipAddress: ip, hostname: name))
         }
     }
