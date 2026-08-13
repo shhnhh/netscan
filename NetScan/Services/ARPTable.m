@@ -23,6 +23,22 @@
 #define RTF_LLINFO 0x400
 #endif
 
+#ifndef NET_RT_DUMP
+#define NET_RT_DUMP 1
+#endif
+
+#ifndef RTF_GATEWAY
+#define RTF_GATEWAY 0x2
+#endif
+
+#ifndef RTA_DST
+#define RTA_DST 0x1
+#endif
+
+#ifndef RTA_GATEWAY
+#define RTA_GATEWAY 0x2
+#endif
+
 struct netscan_rt_metrics {
     u_int32_t rmx_locks;
     u_int32_t rmx_mtu;
@@ -119,6 +135,70 @@ struct netscan_rt_msghdr {
 
     free(buf);
     return result;
+}
+
++ (nullable NSString *)defaultGatewayIPv4 {
+    int mib[6];
+    mib[0] = CTL_NET;
+    mib[1] = PF_ROUTE;
+    mib[2] = 0;
+    mib[3] = AF_INET;
+    mib[4] = NET_RT_DUMP;
+    mib[5] = 0;
+
+    size_t needed = 0;
+    if (sysctl(mib, 6, NULL, &needed, NULL, 0) < 0 || needed == 0) {
+        return nil;
+    }
+
+    char *buf = malloc(needed);
+    if (buf == NULL) {
+        return nil;
+    }
+    if (sysctl(mib, 6, buf, &needed, NULL, 0) < 0) {
+        free(buf);
+        return nil;
+    }
+
+    NSString *gateway = nil;
+    char *lim = buf + needed;
+    char *next = buf;
+    while (next < lim) {
+        struct netscan_rt_msghdr *rtm = (struct netscan_rt_msghdr *)next;
+        if (rtm->rtm_msglen == 0) {
+            break;
+        }
+
+        // The default route is the one whose destination is 0.0.0.0 and
+        // which carries a gateway (RTF_GATEWAY) rather than pointing
+        // straight at an interface. Destination is always the first
+        // sockaddr present; the gateway sockaddr immediately follows it
+        // when RTA_GATEWAY is set, which it is for every gateway route.
+        if ((rtm->rtm_flags & RTF_GATEWAY) &&
+            (rtm->rtm_addrs & RTA_DST) &&
+            (rtm->rtm_addrs & RTA_GATEWAY)) {
+            struct sockaddr *dstSa = (struct sockaddr *)(rtm + 1);
+            struct sockaddr_in *dst = (struct sockaddr_in *)dstSa;
+            if (dst->sin_family == AF_INET && dst->sin_addr.s_addr == INADDR_ANY) {
+                struct sockaddr *gwSa = (struct sockaddr *)((char *)dstSa + NETSCAN_SA_SIZE(dstSa));
+                if (gwSa->sa_family == AF_INET) {
+                    struct sockaddr_in *gw = (struct sockaddr_in *)gwSa;
+                    char ipstr[INET_ADDRSTRLEN];
+                    if (inet_ntop(AF_INET, &gw->sin_addr, ipstr, sizeof(ipstr))) {
+                        gateway = [NSString stringWithUTF8String:ipstr];
+                    }
+                }
+            }
+        }
+
+        next += rtm->rtm_msglen;
+        if (gateway != nil) {
+            break;
+        }
+    }
+
+    free(buf);
+    return gateway;
 }
 
 @end

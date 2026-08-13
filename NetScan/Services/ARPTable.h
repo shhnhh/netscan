@@ -22,6 +22,15 @@ NS_ASSUME_NONNULL_BEGIN
 /// MAC strings ("a4:83:e7:1c:22:0d"). All-zero addresses are filtered out.
 + (NSDictionary<NSString *, NSString *> *)currentTable;
 
+/// The real default route's gateway address (dotted-quad), read from the
+/// same routing table dump instead of guessed by assuming a router sits at
+/// the first or last address of the local subnet. Returns nil if no default
+/// route is found. This is what actually answers "what is the gateway" —
+/// unlike a guess, it's correct even when the router isn't at either edge of
+/// the subnet (e.g. carrier-grade/CGNAT-style networks where the DHCP pool
+/// doesn't span the whole subnet the router itself sits in).
++ (nullable NSString *)defaultGatewayIPv4;
+
 @end
 
 NS_ASSUME_NONNULL_END

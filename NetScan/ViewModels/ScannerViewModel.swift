@@ -59,15 +59,23 @@ final class ScannerViewModel: ObservableObject {
         // The regular sweep only checks 5 ports, and routers often don't
         // answer any of them on 80/443 the way we probe — so it can end up
         // missing entirely. Give it its own wider, dedicated probe alongside
-        // the main sweep instead of just hoping it turns up. There's no
-        // public API for the real default-route IP, so we have a couple of
-        // plausible gateway addresses (first-usable, last-usable) — tried
-        // *in order*, one at a time, stopping at the first that answers.
-        // Trying them all in parallel and labeling every responder "the
-        // router" is how you end up with two routers in the list.
-        let gatewayCandidates = NetworkInfo.gatewayGuesses(for: local).filter { $0 != local.ip }
-        currentNetworkKey = gatewayCandidates.first ?? local.ip
+        // the main sweep instead of just hoping it turns up. Prefer the real
+        // default route read from the kernel's routing table — correct even
+        // when the router doesn't sit at the subnet's first/last address
+        // (e.g. carrier/CGNAT-style networks) — and fall back to guessing
+        // first-usable/last-usable only if that lookup comes back empty.
+        // Candidates are tried *in order*, one at a time, stopping at the
+        // first that answers: trying them all in parallel and labeling every
+        // responder "the router" is how you end up with two routers shown.
         Task {
+            let realGateway = await ARPResolver.defaultGateway()
+            var candidates = NetworkInfo.gatewayGuesses(for: local)
+            if let realGateway {
+                candidates.removeAll { $0 == realGateway }
+                candidates.insert(realGateway, at: 0)
+            }
+            let gatewayCandidates = candidates.filter { $0 != local.ip }
+            await MainActor.run { self.currentNetworkKey = gatewayCandidates.first ?? local.ip }
             for candidate in gatewayCandidates {
                 if await self.probeGateway(ip: candidate) { break }
             }
