@@ -70,6 +70,58 @@ struct DeviceDetailView: View {
                     }
                 }
                 .disabled(viewModel.isPinging)
+
+                if let url = viewModel.webUIURL {
+                    Link(destination: url) {
+                        HStack {
+                            Image(systemName: "safari")
+                            Text("Открыть веб-интерфейс")
+                            Spacer()
+                            Image(systemName: "arrow.up.right")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+
+                if viewModel.canWake {
+                    Button {
+                        viewModel.wakeOnLAN()
+                    } label: {
+                        HStack {
+                            Image(systemName: "bolt.fill")
+                            if let message = viewModel.wakeResultMessage {
+                                Text(message)
+                            } else {
+                                Text("Разбудить (Wake-on-LAN)")
+                            }
+                            Spacer()
+                            if viewModel.isWaking { ProgressView() }
+                        }
+                    }
+                    .disabled(viewModel.isWaking)
+                }
+
+                if viewModel.canPrintTestPage {
+                    Button {
+                        viewModel.printTestPage()
+                    } label: {
+                        HStack {
+                            Image(systemName: "printer.fill")
+                            if let message = viewModel.printResultMessage {
+                                Text(message)
+                            } else {
+                                Text("Напечатать тестовую страницу")
+                            }
+                            Spacer()
+                            if viewModel.isPrintingTestPage { ProgressView() }
+                        }
+                    }
+                    .disabled(viewModel.isPrintingTestPage)
+                }
+            }
+
+            if viewModel.canControlMedia {
+                MediaControlSection(viewModel: viewModel)
             }
 
             Section {
@@ -126,6 +178,73 @@ struct DeviceDetailView: View {
             }
         }
         .navigationTitle(device.displayName)
+    }
+}
+
+/// UPnP/DLNA transport controls — only meaningful once we know whether the
+/// device actually exposes AVTransport/RenderingControl, which requires a
+/// network round-trip to its SSDP description XML, so this fetches lazily
+/// on first appearance rather than during the main scan.
+private struct MediaControlSection: View {
+    @ObservedObject var viewModel: DeviceDetailViewModel
+    @State private var volume: Double = 50
+
+    var body: some View {
+        Section("Управление медиа (UPnP/DLNA)") {
+            if viewModel.isLoadingUPnP {
+                HStack {
+                    ProgressView()
+                    Text("Ищу элементы управления…")
+                        .foregroundStyle(.secondary)
+                }
+            } else if let points = viewModel.upnpControlPoints {
+                if points.hasAnyControl {
+                    if points.avTransport != nil {
+                        HStack(spacing: 24) {
+                            Button {
+                                viewModel.sendMediaAction(.play)
+                            } label: {
+                                Image(systemName: "play.fill")
+                            }
+                            Button {
+                                viewModel.sendMediaAction(.pause)
+                            } label: {
+                                Image(systemName: "pause.fill")
+                            }
+                            Button {
+                                viewModel.sendMediaAction(.stop)
+                            } label: {
+                                Image(systemName: "stop.fill")
+                            }
+                            Spacer()
+                            if viewModel.isSendingMediaCommand { ProgressView() }
+                        }
+                        .font(.title2)
+                        .disabled(viewModel.isSendingMediaCommand)
+                    }
+                    if points.renderingControl != nil {
+                        HStack {
+                            Image(systemName: "speaker.fill")
+                            Slider(value: $volume, in: 0...100, step: 1) { editing in
+                                if !editing { viewModel.setVolume(Int(volume)) }
+                            } label: {
+                                Text("Громкость")
+                            }
+                            Image(systemName: "speaker.wave.3.fill")
+                        }
+                    }
+                } else {
+                    Text("Устройство не поддерживает управление медиа по UPnP")
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                Text("Не удалось получить элементы управления")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .onAppear {
+            viewModel.loadUPnPControlsIfNeeded()
+        }
     }
 }
 

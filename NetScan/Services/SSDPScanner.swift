@@ -12,21 +12,21 @@ import Foundation
 /// Bluetooth itself (no link between a BLE identity and a Wi-Fi IP exists on
 /// iOS), but this gets us the same string through a network-visible door.
 enum SSDPScanner {
-    static func discover(timeout: TimeInterval = 2.5) async -> [(ip: String, name: String)] {
+    static func discover(timeout: TimeInterval = 2.5) async -> [(ip: String, name: String, location: String)] {
         let locations = await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .utility).async {
                 continuation.resume(returning: performDiscovery(timeout: timeout))
             }
         }
 
-        return await withTaskGroup(of: (String, String)?.self) { group in
+        return await withTaskGroup(of: (String, String, String)?.self) { group in
             for (ip, location) in locations {
                 group.addTask {
                     guard let name = await fetchFriendlyName(location: location) else { return nil }
-                    return (ip, name)
+                    return (ip, name, location)
                 }
             }
-            var results: [(ip: String, name: String)] = []
+            var results: [(ip: String, name: String, location: String)] = []
             for await result in group {
                 if let result { results.append(result) }
             }

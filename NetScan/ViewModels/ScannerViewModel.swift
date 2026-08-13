@@ -62,7 +62,9 @@ final class ScannerViewModel: ObservableObject {
             let ssdpResults = await SSDPScanner.discover()
             await MainActor.run {
                 for result in ssdpResults {
-                    self.upsert(Device(id: result.ip, ipAddress: result.ip, bonjourName: result.name))
+                    var device = Device(id: result.ip, ipAddress: result.ip, bonjourName: result.name)
+                    device.ssdpLocation = result.location
+                    self.upsert(device)
                 }
             }
         }
@@ -283,7 +285,10 @@ final class ScannerViewModel: ObservableObject {
     /// resolves, rather than delaying the device from appearing at all.
     private func resolveHostname(for ip: String) {
         Task {
-            guard let name = await ReverseDNSResolver.resolve(ip: ip) else { return }
+            await ResolverGate.shared.acquire()
+            let name = await ReverseDNSResolver.resolve(ip: ip)
+            await ResolverGate.shared.release()
+            guard let name else { return }
             upsert(Device(id: ip, ipAddress: ip, hostname: name))
         }
     }
@@ -295,7 +300,10 @@ final class ScannerViewModel: ObservableObject {
         guard !queriedMDNSIPs.contains(ip) else { return }
         queriedMDNSIPs.insert(ip)
         Task {
-            guard let name = await MDNSReverseResolver.resolveHostname(host: ip) else { return }
+            await ResolverGate.shared.acquire()
+            let name = await MDNSReverseResolver.resolveHostname(host: ip)
+            await ResolverGate.shared.release()
+            guard let name else { return }
             upsert(Device(id: ip, ipAddress: ip, hostname: name))
         }
     }
@@ -307,7 +315,10 @@ final class ScannerViewModel: ObservableObject {
         guard !queriedLockdownIPs.contains(ip) else { return }
         queriedLockdownIPs.insert(ip)
         Task {
-            guard let name = await LockdownClient.deviceName(host: ip) else { return }
+            await ResolverGate.shared.acquire()
+            let name = await LockdownClient.deviceName(host: ip)
+            await ResolverGate.shared.release()
+            guard let name else { return }
             upsert(Device(id: ip, ipAddress: ip, hostname: name))
         }
     }
@@ -319,7 +330,10 @@ final class ScannerViewModel: ObservableObject {
         guard !queriedNetBIOSIPs.contains(ip) else { return }
         queriedNetBIOSIPs.insert(ip)
         Task {
-            guard let name = await NetBIOSResolver.resolveName(host: ip) else { return }
+            await ResolverGate.shared.acquire()
+            let name = await NetBIOSResolver.resolveName(host: ip)
+            await ResolverGate.shared.release()
+            guard let name else { return }
             upsert(Device(id: ip, ipAddress: ip, hostname: name))
         }
     }
@@ -344,6 +358,7 @@ final class ScannerViewModel: ObservableObject {
             if let responseTimeMs = device.responseTimeMs { merged.responseTimeMs = responseTimeMs }
             if let hostname = device.hostname { merged.hostname = hostname }
             if let bonjourName = device.bonjourName { merged.bonjourName = bonjourName }
+            if let ssdpLocation = device.ssdpLocation { merged.ssdpLocation = ssdpLocation }
             devices[index] = merged
         } else {
             devices.append(device)
