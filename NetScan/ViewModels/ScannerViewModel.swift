@@ -21,6 +21,9 @@ final class ScannerViewModel: ObservableObject {
     /// pass) re-upserts it with the 62078 port still in its open-port set.
     private var queriedLockdownIPs: Set<String> = []
 
+    /// Same dedupe idea as `queriedLockdownIPs`, for NetBIOS (139/445) hosts.
+    private var queriedNetBIOSIPs: Set<String> = []
+
     func startScan() {
         guard !isScanning else { return }
 
@@ -34,6 +37,7 @@ final class ScannerViewModel: ObservableObject {
         devices.removeAll()
         scannedCount = 0
         queriedLockdownIPs.removeAll()
+        queriedNetBIOSIPs.removeAll()
 
         // Always show this device — it doesn't need probing, we already
         // know it's alive, it's the one running the scan.
@@ -96,6 +100,9 @@ final class ScannerViewModel: ObservableObject {
                         self?.resolveHostname(for: device.ipAddress)
                         if device.openPorts.contains(WellKnownPort.lockdown.rawValue) {
                             self?.resolveLockdownName(for: device.ipAddress)
+                        }
+                        if device.openPorts.contains(WellKnownPort.netbios.rawValue) || device.openPorts.contains(WellKnownPort.smb.rawValue) {
+                            self?.resolveNetBIOSName(for: device.ipAddress)
                         }
                     }
                 },
@@ -284,6 +291,18 @@ final class ScannerViewModel: ObservableObject {
         queriedLockdownIPs.insert(ip)
         Task {
             guard let name = await LockdownClient.deviceName(host: ip) else { return }
+            upsert(Device(id: ip, ipAddress: ip, hostname: name))
+        }
+    }
+
+    /// An open 139/445 (NetBIOS/SMB) is a strong signal of a Windows host —
+    /// these don't run Bonjour/SSDP/lockdown, but almost all still answer an
+    /// NBSTAT query on UDP 137 with their actual computer name.
+    private func resolveNetBIOSName(for ip: String) {
+        guard !queriedNetBIOSIPs.contains(ip) else { return }
+        queriedNetBIOSIPs.insert(ip)
+        Task {
+            guard let name = await NetBIOSResolver.resolveName(host: ip) else { return }
             upsert(Device(id: ip, ipAddress: ip, hostname: name))
         }
     }

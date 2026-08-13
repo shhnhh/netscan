@@ -52,23 +52,40 @@ enum SSDPScanner {
         let request = "M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\nMAN: \"ssdp:discover\"\r\nMX: 2\r\nST: ssdp:all\r\n\r\n"
         let bytes = Array(request.utf8)
 
-        let sent = bytes.withUnsafeBytes { rawBuffer -> Int in
-            withUnsafePointer(to: &groupAddr) { addrPtr -> Int in
-                addrPtr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                    sendto(sock, rawBuffer.baseAddress, rawBuffer.count, 0, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_in>.size))
+        func send() {
+            _ = bytes.withUnsafeBytes { rawBuffer -> Int in
+                withUnsafePointer(to: &groupAddr) { addrPtr -> Int in
+                    addrPtr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                        sendto(sock, rawBuffer.baseAddress, rawBuffer.count, 0, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_in>.size))
+                    }
                 }
             }
         }
-        guard sent > 0 else { return [:] }
+
+        // Multicast UDP is lossy and plenty of consumer/IoT gear (printers,
+        // projectors) only answers the first M-SEARCH it happens to catch —
+        // a single send can just get dropped. Re-sending a few times across
+        // the listening window costs nothing and catches stragglers a
+        // one-shot send would silently miss.
+        send()
+        guard timeout > 0 else { return [:] }
 
         var results: [String: String] = [:]
         let deadline = Date().addingTimeInterval(timeout)
+        var resendsRemaining = 2
         while true {
             let remaining = deadline.timeIntervalSinceNow
             guard remaining > 0 else { break }
 
+            if resendsRemaining > 0, remaining < timeout * Double(resendsRemaining) / 3 {
+                send()
+                resendsRemaining -= 1
+            }
+
             var pollFd = pollfd(fd: sock, events: Int16(POLLIN), revents: 0)
-            guard poll(&pollFd, 1, Int32(remaining * 1000)) > 0 else { break }
+            let pollResult = poll(&pollFd, 1, Int32(min(remaining, 0.5) * 1000))
+            guard pollResult >= 0 else { break } // real socket error, not just "nothing yet"
+            guard pollResult > 0 else { continue } // plain timeout on this slice — keep waiting
 
             var buffer = [UInt8](repeating: 0, count: 2048)
             var from = sockaddr_in()
