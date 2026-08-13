@@ -126,6 +126,7 @@ final class ScannerViewModel: ObservableObject {
             // into the devices. Run it a second time shortly after: some
             // entries land in the cache slightly after their probe completes.
             await self.applyARPTable()
+            await self.applyAgentARPTable()
 
             await MainActor.run {
                 self.isScanning = false
@@ -146,6 +147,7 @@ final class ScannerViewModel: ObservableObject {
             // the first pass missed.
             try? await Task.sleep(nanoseconds: 2_000_000_000)
             await self.applyARPTable()
+            await self.applyAgentARPTable()
 
             // Once MACs are as complete as they'll get, compare against the
             // network's history to flag new arrivals and update the baseline.
@@ -276,6 +278,27 @@ final class ScannerViewModel: ObservableObject {
         }
         // A newly-attached vendor can turn an anonymous IP into a "named"
         // device, which changes where it belongs in the ordering.
+        if changed { sortDevices() }
+    }
+
+    /// Same idea as `applyARPTable`, but sourced from the optional
+    /// companion LAN agent (see AgentClient) instead of this device's own
+    /// (iOS-masked) ARP read — a no-op unless the user has configured one
+    /// in settings. Runs after `applyARPTable` so a real agent-reported MAC
+    /// overwrites whatever (or nothing) the on-device read produced.
+    private func applyAgentARPTable() async {
+        guard AgentSettings.isEnabled, let baseURL = AgentSettings.baseURL else { return }
+        let snapshot = await AgentClient.fetchARPTable(baseURL: baseURL, token: AgentSettings.token)
+        guard !snapshot.isEmpty else { return }
+        var changed = false
+        for (ip, entry) in snapshot {
+            guard let index = devices.firstIndex(where: { $0.id == ip }) else { continue }
+            if devices[index].macAddress != entry.mac {
+                devices[index].macAddress = entry.mac
+                devices[index].macVendor = entry.vendor
+                changed = true
+            }
+        }
         if changed { sortDevices() }
     }
 

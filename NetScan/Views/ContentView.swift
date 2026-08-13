@@ -3,6 +3,7 @@ import SwiftUI
 private enum ContentRoute: Hashable {
     case speedTest
     case security
+    case agentSettings
 }
 
 struct ContentView: View {
@@ -52,6 +53,8 @@ struct ContentView: View {
                     SpeedTestView()
                 case .security:
                     WiFiAuditView()
+                case .agentSettings:
+                    AgentSettingsView()
                 }
             }
             .toolbar {
@@ -62,6 +65,9 @@ struct ContentView: View {
                         }
                         NavigationLink(value: ContentRoute.security) {
                             Image(systemName: "lock.shield")
+                        }
+                        NavigationLink(value: ContentRoute.agentSettings) {
+                            Image(systemName: "gearshape")
                         }
                         if !viewModel.isScanning && !viewModel.devices.isEmpty {
                             ShareLink(item: viewModel.reportText) {
