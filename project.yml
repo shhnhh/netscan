@@ -57,6 +57,7 @@ targets:
       base:
         SWIFT_VERSION: "5.0"
         TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: YES
 schemes:
   NetScan:
     build:
