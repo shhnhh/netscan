@@ -15,7 +15,14 @@ import Network
 final class BonjourScanner {
     private let serviceTypes = [
         "_http._tcp", "_https._tcp", "_ssh._tcp", "_ftp._tcp", "_smb._tcp",
-        "_airplay._tcp", "_raop._tcp", "_ipp._tcp", "_printer._tcp", "_device-info._tcp"
+        "_airplay._tcp", "_raop._tcp", "_ipp._tcp", "_printer._tcp", "_device-info._tcp",
+        // Apple's own cross-device discovery/pairing protocols — this is
+        // what actually carries an iPhone/iPad/Watch/Mac's set name, since
+        // those devices otherwise run no server on any of the ports above.
+        "_companion-link._tcp", "_rdlink._tcp", "_homekit._tcp",
+        // Chromecast/Android TV and similar — advertises the user-set
+        // device name the same way AirPlay does for Apple gear.
+        "_googlecast._tcp"
     ]
 
     // Every browser and connection below runs its callbacks on this single
@@ -66,8 +73,17 @@ final class BonjourScanner {
     /// itself already on `queue`), so touching the shared arrays here is safe.
     private func resolve(_ result: NWBrowser.Result, onResolved: @escaping @Sendable (String, String) -> Void) {
         guard case let .service(name, _, _, _) = result.endpoint else { return }
+        let cleanName = Self.cleanServiceName(name)
 
-        let connection = NWConnection(to: result.endpoint, using: .tcp)
+        // UDP, not TCP: we only need the address the service resolves to, and
+        // a UDP NWConnection reaches `.ready` as soon as mDNS resolution and
+        // routing succeed — it doesn't need anything actually listening on
+        // the port. A TCP connection needs a real listener to complete its
+        // handshake, which many advertised services don't have (e.g.
+        // _device-info._tcp/_companion-link._tcp on an iPhone exist purely
+        // for discovery, with no server behind them) — that's why those
+        // devices' names weren't getting matched to an IP before.
+        let connection = NWConnection(to: result.endpoint, using: .udp)
         resolvingConnections.append(connection)
 
         var finished = false
@@ -86,20 +102,30 @@ final class BonjourScanner {
                 return
             }
             if case let .ipv4(address) = host {
-                onResolved(name, Self.plainAddress("\(address)"))
+                onResolved(cleanName, Self.plainAddress("\(address)"))
             }
             finish()
         }
 
         connection.start(queue: queue)
 
-        // Most Bonjour-advertised services accept the connection almost
-        // instantly since the whole point is that something's listening —
-        // this timeout is just a safety net for the rare service that
-        // doesn't respond, so we don't leak connections indefinitely.
+        // Resolution over UDP is normally near-instant; this timeout is just
+        // a safety net so an unresolvable service doesn't leak a connection.
         queue.asyncAfter(deadline: .now() + 3) {
             finish()
         }
+    }
+
+    /// AirPlay/RAOP (and some Companion-Link) service instances are named
+    /// "<12-hex-digit-device-id>@<friendly name>" — e.g.
+    /// "682F678C480A@MacBook" — rather than just the friendly name. Strip
+    /// that machine-ID prefix so the display name matches what the device
+    /// actually calls itself everywhere else.
+    private static func cleanServiceName(_ name: String) -> String {
+        guard let atIndex = name.firstIndex(of: "@") else { return name }
+        let prefix = name[name.startIndex..<atIndex]
+        guard prefix.count == 12, prefix.allSatisfy({ $0.isHexDigit }) else { return name }
+        return String(name[name.index(after: atIndex)...])
     }
 
     /// Network.framework's IPv4Address/IPv6Address stringify with a

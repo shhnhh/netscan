@@ -29,6 +29,10 @@ targets:
           - _ipp._tcp
           - _printer._tcp
           - _device-info._tcp
+          - _companion-link._tcp
+          - _rdlink._tcp
+          - _homekit._tcp
+          - _googlecast._tcp
     entitlements:
       path: NetScan/App/NetScan.entitlements
       properties:
