@@ -19,8 +19,14 @@ jobs:
 
       - name: Run unit tests
         run: |
+          # Hardcoding a specific simulator name (e.g. "iPhone 15") breaks
+          # whenever Apple's yearly lineup rolls forward and the runner
+          # image drops that name — pick whatever iPhone simulator the
+          # image actually has instead of pinning one.
+          DEVICE=$(xcrun simctl list devices available -j | jq -r '[.devices[][] | select(.name | test("iPhone")) | .name] | .[0]')
+          echo "Using simulator: $DEVICE"
           xcodebuild -project NetScan.xcodeproj -scheme NetScan \
-            -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 15' \
+            -sdk iphonesimulator -destination "platform=iOS Simulator,name=$DEVICE" \
             test
 
   build:
