@@ -2,8 +2,6 @@ import SwiftUI
 
 private enum ContentRoute: Hashable {
     case speedTest
-    case security
-    case agentSettings
 }
 
 struct ContentView: View {
@@ -51,10 +49,6 @@ struct ContentView: View {
                 switch route {
                 case .speedTest:
                     SpeedTestView()
-                case .security:
-                    WiFiAuditView()
-                case .agentSettings:
-                    AgentSettingsView()
                 }
             }
             .toolbar {
@@ -63,20 +57,10 @@ struct ContentView: View {
                         NavigationLink(value: ContentRoute.speedTest) {
                             Image(systemName: "speedometer")
                         }
-                        NavigationLink(value: ContentRoute.security) {
-                            Image(systemName: "lock.shield")
-                        }
                         if !viewModel.isScanning && !viewModel.devices.isEmpty {
                             ShareLink(item: viewModel.reportText) {
                                 Image(systemName: "square.and.arrow.up")
                             }
-                        }
-                        Menu {
-                            NavigationLink(value: ContentRoute.agentSettings) {
-                                Label("LAN-агент (доп. устройство)", systemImage: "server.rack")
-                            }
-                        } label: {
-                            Image(systemName: "ellipsis.circle")
                         }
                     }
                 }
