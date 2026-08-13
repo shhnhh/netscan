@@ -16,6 +16,11 @@ final class ScannerViewModel: ObservableObject {
     /// address, stable across DHCP lease churn within one network.
     private var currentNetworkKey = ""
 
+    /// IPs already queried via LockdownClient this scan — avoids re-querying
+    /// the same iOS device every time a later probe (gateway check, ARP
+    /// pass) re-upserts it with the 62078 port still in its open-port set.
+    private var queriedLockdownIPs: Set<String> = []
+
     func startScan() {
         guard !isScanning else { return }
 
@@ -28,6 +33,7 @@ final class ScannerViewModel: ObservableObject {
         statusMessage = nil
         devices.removeAll()
         scannedCount = 0
+        queriedLockdownIPs.removeAll()
 
         // Always show this device — it doesn't need probing, we already
         // know it's alive, it's the one running the scan.
@@ -88,6 +94,9 @@ final class ScannerViewModel: ObservableObject {
                     Task { @MainActor in
                         self?.upsert(device)
                         self?.resolveHostname(for: device.ipAddress)
+                        if device.openPorts.contains(WellKnownPort.lockdown.rawValue) {
+                            self?.resolveLockdownName(for: device.ipAddress)
+                        }
                     }
                 },
                 onProgress: { [weak self] completed, total in
@@ -263,6 +272,18 @@ final class ScannerViewModel: ObservableObject {
     private func resolveHostname(for ip: String) {
         Task {
             guard let name = await ReverseDNSResolver.resolve(ip: ip) else { return }
+            upsert(Device(id: ip, ipAddress: ip, hostname: name))
+        }
+    }
+
+    /// An open 62078 is iOS's lockdown/Wi-Fi-sync service — the actual
+    /// device name (e.g. "Fedor's iPhone") is one unauthenticated query away
+    /// via LockdownClient, no ARP/Bonjour/SSDP guesswork needed for these.
+    private func resolveLockdownName(for ip: String) {
+        guard !queriedLockdownIPs.contains(ip) else { return }
+        queriedLockdownIPs.insert(ip)
+        Task {
+            guard let name = await LockdownClient.deviceName(host: ip) else { return }
             upsert(Device(id: ip, ipAddress: ip, hostname: name))
         }
     }
