@@ -66,13 +66,17 @@ struct ContentView: View {
                         NavigationLink(value: ContentRoute.security) {
                             Image(systemName: "lock.shield")
                         }
-                        NavigationLink(value: ContentRoute.agentSettings) {
-                            Image(systemName: "gearshape")
-                        }
                         if !viewModel.isScanning && !viewModel.devices.isEmpty {
                             ShareLink(item: viewModel.reportText) {
                                 Image(systemName: "square.and.arrow.up")
                             }
+                        }
+                        Menu {
+                            NavigationLink(value: ContentRoute.agentSettings) {
+                                Label("LAN-агент (доп. устройство)", systemImage: "server.rack")
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
                         }
                     }
                 }
