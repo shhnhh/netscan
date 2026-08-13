@@ -39,6 +39,20 @@ final class ScannerViewModel: ObservableObject {
             }
         }
 
+        // Second, independent source of self-announced device names: SSDP
+        // catches smart TVs, routers, speakers and IoT gear that don't speak
+        // any of the Bonjour service types above but do answer UPnP
+        // discovery — often with the same name the device uses everywhere,
+        // including Bluetooth pairing.
+        Task {
+            let ssdpResults = await SSDPScanner.discover()
+            await MainActor.run {
+                for result in ssdpResults {
+                    self.upsert(Device(id: result.ip, ipAddress: result.ip, bonjourName: result.name))
+                }
+            }
+        }
+
         let hosts = NetworkInfo.hostAddresses(in: local).filter { $0 != local.ip }
         totalHosts = hosts.count
 
