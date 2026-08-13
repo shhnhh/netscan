@@ -86,7 +86,7 @@ final class BonjourScanner {
                 return
             }
             if case let .ipv4(address) = host {
-                onResolved(name, "\(address)")
+                onResolved(name, Self.plainAddress("\(address)"))
             }
             finish()
         }
@@ -100,5 +100,15 @@ final class BonjourScanner {
         queue.asyncAfter(deadline: .now() + 3) {
             finish()
         }
+    }
+
+    /// Network.framework's IPv4Address/IPv6Address stringify with a
+    /// "%interfaceName" suffix (e.g. "192.168.1.5%en0") when the address is
+    /// bound to a specific interface, which it always is here since it comes
+    /// off an active connection over Wi-Fi. That suffix isn't part of the
+    /// address and breaks matching it against the plain-IP device list, so
+    /// it's stripped before the address is used anywhere else.
+    private static func plainAddress(_ raw: String) -> String {
+        raw.split(separator: "%", maxSplits: 1).first.map(String.init) ?? raw
     }
 }
