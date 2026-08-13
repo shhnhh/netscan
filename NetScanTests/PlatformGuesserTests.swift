@@ -50,4 +50,47 @@ final class PlatformGuesserTests: XCTestCase {
         let device = Device(id: "1.1.1.1", ipAddress: "1.1.1.1")
         XCTAssertEqual(PlatformGuesser.guess(for: device), .unknown)
     }
+
+    func testRouterVendorIsNetworkGear() {
+        var device = Device(id: "1.1.1.1", ipAddress: "1.1.1.1")
+        device.macVendor = "TP-Link"
+        XCTAssertEqual(PlatformGuesser.guess(for: device), .networkGear)
+    }
+
+    func testXboxNameIsGameConsole() {
+        var device = Device(id: "1.1.1.1", ipAddress: "1.1.1.1")
+        device.bonjourName = "Fedor's Xbox Series X"
+        XCTAssertEqual(PlatformGuesser.guess(for: device), .gameConsole)
+    }
+
+    func testPlayStationNameIsGameConsole() {
+        var device = Device(id: "1.1.1.1", ipAddress: "1.1.1.1")
+        device.hostname = "PS5-1234"
+        XCTAssertEqual(PlatformGuesser.guess(for: device), .gameConsole)
+    }
+
+    func testSamsungWithSSDPIsMediaDevice() {
+        var device = Device(id: "1.1.1.1", ipAddress: "1.1.1.1")
+        device.macVendor = "Samsung"
+        device.ssdpLocation = "http://1.1.1.1:7676/description.xml"
+        XCTAssertEqual(PlatformGuesser.guess(for: device), .mediaDevice)
+    }
+
+    func testSamsungWithoutSSDPIsNotMediaDevice() {
+        var device = Device(id: "1.1.1.1", ipAddress: "1.1.1.1")
+        device.macVendor = "Samsung"
+        XCTAssertNotEqual(PlatformGuesser.guess(for: device), .mediaDevice)
+    }
+
+    func testAmazonVendorFallsBackToIoT() {
+        var device = Device(id: "1.1.1.1", ipAddress: "1.1.1.1")
+        device.macVendor = "Amazon"
+        XCTAssertEqual(PlatformGuesser.guess(for: device), .iot)
+    }
+
+    func testMicrosoftVendorFallsBackToWindows() {
+        var device = Device(id: "1.1.1.1", ipAddress: "1.1.1.1")
+        device.macVendor = "Microsoft"
+        XCTAssertEqual(PlatformGuesser.guess(for: device), .windows)
+    }
 }

@@ -12,6 +12,7 @@ enum DevicePlatform: Equatable {
     case mediaDevice
     case iot
     case gameConsole
+    case networkGear
     case unknown
 
     var label: String {
@@ -23,6 +24,7 @@ enum DevicePlatform: Equatable {
         case .mediaDevice: return "ТВ/проектор"
         case .iot: return "IoT/умный дом"
         case .gameConsole: return "Игровая консоль"
+        case .networkGear: return "Сетевое оборудование"
         case .unknown: return "Неизвестно"
         }
     }
@@ -39,6 +41,7 @@ enum DevicePlatform: Equatable {
         case .mediaDevice: return "tv.fill"
         case .iot: return "sensor.fill"
         case .gameConsole: return "gamecontroller.fill"
+        case .networkGear: return "wifi.router.fill"
         case .unknown: return "questionmark.circle"
         }
     }
@@ -49,10 +52,33 @@ enum PlatformGuesser {
         let name = (device.bonjourName ?? device.hostname ?? "").lowercased()
         let ports = Set(device.openPorts)
         let vendor = device.macVendor
+        // A device that answered SSDP discovery is running some UPnP
+        // service — real phones/laptops normally don't, so this is a good
+        // extra signal for disambiguating vendors that ship both TVs and
+        // handsets (Samsung, Sony, LG).
+        let respondsToSSDP = device.ssdpLocation != nil
 
-        // The MAC vendor, when we have it, is a stronger signal than port
-        // guessing for a few unambiguous makers — check those first.
+        // Distinctive console product names beat everything else, including
+        // the printer-port check below (a console can have odd open ports).
+        if name.contains("xbox") {
+            return .gameConsole
+        }
+        if name.contains("playstation") || name.contains("ps4") || name.contains("ps5") {
+            return .gameConsole
+        }
+
+        // Printer ports are distinctive enough to check next — IPP (631)
+        // and raw/JetDirect (9100) aren't used for much else on a LAN.
+        if ports.contains(631) || ports.contains(9100)
+            || name.contains("printer") || name.contains("принтер") {
+            return .printer
+        }
+
+        // Router/AP/switch vendors ship almost nothing else that would show
+        // up in a LAN scan, so this is unambiguous on its own.
         switch vendor {
+        case "TP-Link", "Netgear", "D-Link", "Ubiquiti", "ASUS", "Keenetic", "Zyxel", "MikroTik":
+            return .networkGear
         case "Espressif", "Raspberry Pi", "Tuya":
             return .iot
         case "Nintendo":
@@ -63,12 +89,6 @@ enum PlatformGuesser {
             break
         }
 
-        // Printer ports are distinctive enough to check first — IPP (631)
-        // and raw/JetDirect (9100) aren't used for much else on a LAN.
-        if ports.contains(631) || ports.contains(9100)
-            || name.contains("printer") || name.contains("принтер") {
-            return .printer
-        }
         if name.contains("iphone") || name.contains("ipad") || name.contains("macbook")
             || name.contains("imac") || name.contains("mac mini") || name.contains("mac pro")
             || name.contains("apple tv") || name.contains(" mac") || name.hasPrefix("mac")
@@ -81,10 +101,18 @@ enum PlatformGuesser {
         // "Apple TV" above, this is more likely a third-party TV/projector
         // with AirPlay support than an actual Apple device. Chromecast
         // receivers use 8008/8009 the same way.
-        if ports.contains(7000) || ports.contains(8008) || ports.contains(8009)
+        let hasCastPorts = ports.contains(7000) || ports.contains(8008) || ports.contains(8009)
+        if hasCastPorts
             || name.contains("tv") || name.contains("roku") || name.contains("chromecast")
             || name.contains("projector") || name.contains("проектор") || name.contains("epson")
             || name.contains("benq") {
+            return .mediaDevice
+        }
+        // Samsung/Sony/LG all ship phones/speakers/appliances alongside
+        // TVs, so only trust the vendor for "TV" once it's also answering
+        // UPnP discovery — otherwise a bare vendor match is too likely to
+        // be a phone.
+        if respondsToSSDP, let vendor, ["Samsung", "Sony", "LG"].contains(vendor) {
             return .mediaDevice
         }
         if name.contains("android") || name.contains("galaxy") || name.contains("pixel")
@@ -96,6 +124,27 @@ enum PlatformGuesser {
             || (ports.contains(3389) && !ports.contains(62078))
             || (ports.contains(139) && ports.contains(445)) {
             return .windows
+        }
+
+        // Lower-confidence vendor fallbacks — these makers span several
+        // device categories, so only use them once name/port/SSDP checks
+        // above found nothing more specific.
+        switch vendor {
+        case "Amazon":
+            // Echo speakers vastly outnumber Fire TVs in a typical OUI
+            // block; a Fire TV would usually have already matched the
+            // cast-port/name check above.
+            return .iot
+        case "Google":
+            // Chromecasts/Google TV already matched hasCastPorts above;
+            // what's left in this vendor block is mostly Nest/Home IoT.
+            return .iot
+        case "Xiaomi", "Huawei":
+            return .android
+        case "Microsoft":
+            return .windows
+        default:
+            break
         }
         return .unknown
     }
